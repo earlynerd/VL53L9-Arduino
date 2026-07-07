@@ -87,3 +87,23 @@ transport.
 
 Use the I3C dynamic address assigned during ENTDAA for private transfers. The
 legacy VL53-style `0x29` address is for I2C mode, not I3C private SDR traffic.
+
+## X-NUCLEO-53L9A1 + Metro RP2350 Bring-Up
+
+The current PlatformIO defaults target the direct X-NUCLEO-53L9A1 to Adafruit
+Metro RP2350 connection:
+
+```text
+HOST XSHUT  -> GPIO0
+HOST INTR   -> GPIO1
+HOST CLKIN  -> GPIO11, 12 MHz PWM output
+HOST SYNCIN -> GPIO44, driven high
+HOST SDA    -> GPIO20
+HOST SCL    -> GPIO21
+```
+
+The validation sketch does not run the full ST firmware patch/init sequence
+yet. It starts the 12 MHz host clock, holds/releases XSHUT, initializes the PIO
+I3C transport at 1 MHz, runs RSTDAA and ENTDAA with dynamic address `0x52`,
+checks that the address ACKs, then attempts private SDR reads of the model,
+ROM revision, patch revision, and FSM registers.
