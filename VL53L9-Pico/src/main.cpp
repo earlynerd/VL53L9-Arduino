@@ -5,6 +5,14 @@
 #include "hardware/pwm.h"
 #include "i3c_hl.h"
 
+#ifndef VL53L9_ENABLE_ST_DRIVER
+#define VL53L9_ENABLE_ST_DRIVER 0
+#endif
+
+#if VL53L9_ENABLE_ST_DRIVER
+#include "vl53l9_arduino_port.h"
+#endif
+
 #ifndef VL53L9_HOST_XSHUT_PIN
 #define VL53L9_HOST_XSHUT_PIN 0
 #endif
@@ -82,6 +90,7 @@ constexpr uint8_t kI3cDriveStrengthMa = VL53L9_I3C_DRIVE_STRENGTH_MA;
 constexpr uint32_t kI3cClockKhz = VL53L9_I3C_CLK_KHZ;
 constexpr bool kI3cDisableInterrupts = VL53L9_I3C_DISABLE_INTERRUPTS != 0;
 constexpr uint8_t kI3cDynamicAddress = VL53L9_I3C_DYNAMIC_ADDRESS;
+constexpr bool kEnableStDriver = VL53L9_ENABLE_ST_DRIVER != 0;
 
 constexpr uint16_t kRegModelId = 0x0000;
 constexpr uint16_t kRegRomRevision = 0x000a;
@@ -408,6 +417,34 @@ bool readAndPrintRevisionRegisters()
   return true;
 }
 
+#if VL53L9_ENABLE_ST_DRIVER
+bool runStDriverInit()
+{
+  static vl53l9_arduino_device_t device;
+
+  vl53l9_arduino_device_init(&device, kI3cDynamicAddress);
+  vl53l9_arduino_device_set_power_config(&device, VDDA_2V8, VDDIO_1V8, kHostClkInHz);
+
+  Serial.println("Starting ST vl53l9_init()");
+  const int initStatus = vl53l9_init(&device);
+  Serial.print("vl53l9_init: ");
+  Serial.println(initStatus);
+  if (initStatus != VL53L9_ERROR_NONE) {
+    return false;
+  }
+
+  uint32_t deviceId = 0;
+  const int idStatus = vl53l9_get_device_id(&device, &deviceId);
+  Serial.print("vl53l9_get_device_id: ");
+  Serial.print(idStatus);
+  Serial.print(", device ID ");
+  printHex32(deviceId);
+  Serial.println();
+
+  return idStatus == VL53L9_ERROR_NONE;
+}
+#endif
+
 void runHardwareBringup()
 {
   configureHostPins();
@@ -438,7 +475,19 @@ void runHardwareBringup()
     return;
   }
 
-  Serial.println("Transport validation passed. Next step is wiring this into the ST vl53l9 platform layer.");
+  Serial.print("Transport validation passed. ST driver init ");
+  Serial.println(kEnableStDriver ? "enabled." : "disabled.");
+
+#if VL53L9_ENABLE_ST_DRIVER
+  if (!runStDriverInit()) {
+    Serial.println("ST driver initialization failed");
+    return;
+  }
+
+  Serial.println("ST driver initialization passed.");
+#else
+  Serial.println("Build env rp2350_st_driver enables the optional vl53l9_init() path.");
+#endif
 }
 }
 

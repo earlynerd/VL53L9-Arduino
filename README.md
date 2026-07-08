@@ -24,12 +24,14 @@ Implemented so far:
 - XSHUT reset sequencing.
 - Initial I3C validation path: RSTDAA, ENTDAA, dynamic address ACK check, and
   simple private SDR register reads.
+- Opt-in Arduino-Pico platform layer for ST's portable `vl53l9` driver.
+- Opt-in build environment that copies selected ST component files from the
+  local ignored ST package into the PlatformIO build directory.
 
 Not done yet:
 
 - Hardware validation of the current bring-up sketch.
-- Full ST `vl53l9_platform.c` replacement for Arduino-Pico.
-- Full `vl53l9_init()` execution and firmware patch upload.
+- Hardware validation of the ST `vl53l9_init()` path and firmware patch upload.
 - Frame acquisition and post-processing.
 - Interrupt/IBI-driven frame-ready handling.
 
@@ -68,8 +70,15 @@ VL53L9-Pico/
     RP2040/RP2350 PIO I3C transport derived from I3CBlaster, plus local
     integration notes.
 
+  lib/vl53l9_arduino/
+    Arduino-Pico platform callbacks for ST's portable VL53L9 driver.
+
   scripts/gen_i3c_pio.py
     PlatformIO pre-build script that generates i3c.pio.h.
+
+  scripts/gen_st_vl53l9.py
+    Optional pre-build script that stages local ST driver files for the
+    rp2350_st_driver environment.
 ```
 
 The original ST package is intentionally not vendored in this repository. For
@@ -90,6 +99,9 @@ cd VL53L9-Pico
 pio run
 ```
 
+This builds the default `rp2350` environment, which validates the transport and
+stops before calling ST's full driver.
+
 The generated UF2 is written under:
 
 ```text
@@ -103,6 +115,16 @@ board = adafruit_metro_rp2350
 framework = arduino
 board_build.core = earlephilhower
 ```
+
+To build the opt-in ST driver initialization path:
+
+```sh
+pio run -e rp2350_st_driver
+```
+
+That environment requires the local ST package path described above. It copies
+only the required ST component files into `.pio/build/.../generated/vl53l9_st`
+and compiles them from there.
 
 ## Configuration
 
@@ -184,10 +206,11 @@ straightforward: private SDR writes send a 16-bit register address followed by
 payload bytes, and private SDR reads write the 16-bit register address then read
 back the requested payload.
 
-The full `vl53l9_init()` path writes board configuration, uploads the firmware
-patch, boots the device, checks patch revision, and applies default settings.
-The current sketch intentionally stops before that full initialization so the
-transport can be validated in isolation.
+The default `rp2350` sketch intentionally stops before `vl53l9_init()` so the
+transport can be validated in isolation. The `rp2350_st_driver` environment
+continues into ST's full `vl53l9_init()` path after the same transport checks.
+That path writes board configuration, uploads the firmware patch, boots the
+device, checks patch revision, and applies default settings.
 
 ## Licensing And Provenance
 
@@ -206,9 +229,7 @@ copying ST-provided components into this repository.
 ## Roadmap
 
 - Validate the current transport sketch on the Metro RP2350 + X-NUCLEO hardware.
-- Add an Arduino-Pico `vl53l9_platform.c` implementation using `i3c_hl`.
-- Pull the ST core driver into the PlatformIO build without STM32 HAL
-  dependencies.
-- Run `vl53l9_init()` and verify the patch revision after firmware upload.
+- Validate the optional ST driver environment on hardware.
+- Verify `vl53l9_init()` and patch revision after firmware upload.
 - Add a minimal frame-read example.
 - Decide whether frame-ready should use the interrupt pin, I3C IBI, or both.
