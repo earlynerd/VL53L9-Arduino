@@ -14,6 +14,14 @@
 #define VL53L9_ARDUINO_I3C_READ_CHUNK_SIZE 256U
 #endif
 
+#ifndef VL53L9_ARDUINO_I3C_IBI_RETRIES
+#define VL53L9_ARDUINO_I3C_IBI_RETRIES 3U
+#endif
+
+#ifndef VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE
+#define VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE 16U
+#endif
+
 #if (VL53L9_ARDUINO_I3C_WRITE_CHUNK_SIZE < 3U)
 #error "VL53L9_ARDUINO_I3C_WRITE_CHUNK_SIZE must be at least 3"
 #endif
@@ -21,6 +29,8 @@
 #if (VL53L9_ARDUINO_I3C_READ_CHUNK_SIZE < 1U)
 #error "VL53L9_ARDUINO_I3C_READ_CHUNK_SIZE must be at least 1"
 #endif
+
+static vl53l9_arduino_platform_error_t g_last_error;
 
 static int i3c_status_to_vl53l9_error(i3c_hl_status_t status)
 {
@@ -30,6 +40,128 @@ static int i3c_status_to_vl53l9_error(i3c_hl_status_t status)
 static vl53l9_arduino_device_t *checked_device(void *const p_dev)
 {
     return (vl53l9_arduino_device_t *)p_dev;
+}
+
+static void record_i3c_error(const char *operation,
+                             uint8_t i3c_address,
+                             uint16_t register_address,
+                             uint32_t requested_size,
+                             uint32_t actual_size,
+                             uint32_t chunk_offset,
+                             uint32_t ibi_retries,
+                             i3c_hl_status_t status)
+{
+    g_last_error.valid = 1U;
+    g_last_error.operation = operation;
+    g_last_error.i3c_address = i3c_address;
+    g_last_error.register_address = register_address;
+    g_last_error.requested_size = requested_size;
+    g_last_error.actual_size = actual_size;
+    g_last_error.chunk_offset = chunk_offset;
+    g_last_error.ibi_retries = ibi_retries;
+    g_last_error.i3c_status = (int)status;
+}
+
+static i3c_hl_status_t drain_pending_ibi(void)
+{
+    uint8_t payload[VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE];
+    uint32_t length = sizeof(payload);
+    i3c_hl_status_t status = i3c_hl_poll(payload, &length);
+
+    return (status == i3c_hl_status_no_ibi) ? i3c_hl_status_ok : status;
+}
+
+static i3c_hl_status_t privwrite_with_ibi_retry(uint8_t i3c_address,
+                                                const uint8_t *data,
+                                                uint32_t size,
+                                                uint32_t *ibi_retries)
+{
+    i3c_hl_status_t status = i3c_hl_status_ok;
+    uint32_t retries = 0U;
+
+    while (1)
+    {
+        status = i3c_hl_sdr_privwrite(i3c_address, data, size);
+        if (status != i3c_hl_status_ibi)
+        {
+            break;
+        }
+        status = drain_pending_ibi();
+        if (status != i3c_hl_status_ok)
+        {
+            break;
+        }
+        if (retries >= VL53L9_ARDUINO_I3C_IBI_RETRIES)
+        {
+            status = i3c_hl_status_ibi;
+            break;
+        }
+        retries++;
+    }
+
+    if (ibi_retries != NULL)
+    {
+        *ibi_retries = retries;
+    }
+    return status;
+}
+
+static i3c_hl_status_t privwriteread_with_ibi_retry(uint8_t i3c_address,
+                                                    const uint8_t *write_data,
+                                                    uint32_t write_size,
+                                                    uint8_t *read_data,
+                                                    uint32_t requested_read_size,
+                                                    uint32_t *actual_read_size,
+                                                    uint32_t *ibi_retries)
+{
+    i3c_hl_status_t status = i3c_hl_status_ok;
+    uint32_t retries = 0U;
+
+    while (1)
+    {
+        *actual_read_size = requested_read_size;
+        status = i3c_hl_sdr_privwriteread(i3c_address,
+                                          write_data,
+                                          write_size,
+                                          read_data,
+                                          actual_read_size);
+        if (status != i3c_hl_status_ibi)
+        {
+            break;
+        }
+        status = drain_pending_ibi();
+        if (status != i3c_hl_status_ok)
+        {
+            break;
+        }
+        if (retries >= VL53L9_ARDUINO_I3C_IBI_RETRIES)
+        {
+            status = i3c_hl_status_ibi;
+            break;
+        }
+        retries++;
+    }
+
+    if (ibi_retries != NULL)
+    {
+        *ibi_retries = retries;
+    }
+    return status;
+}
+
+void vl53l9_arduino_clear_last_error(void)
+{
+    memset(&g_last_error, 0, sizeof(g_last_error));
+}
+
+const vl53l9_arduino_platform_error_t *vl53l9_arduino_get_last_error(void)
+{
+    return &g_last_error;
+}
+
+const char *vl53l9_arduino_i3c_status_name(int status)
+{
+    return i3c_hl_get_errorstring((i3c_hl_status_t)status);
 }
 
 void vl53l9_arduino_device_init(vl53l9_arduino_device_t *device, uint8_t i3c_address)
@@ -83,6 +215,7 @@ int vl53l9_read(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_t
         const uint32_t addr32 = (uint32_t)address + offset;
         uint8_t command[2];
         uint32_t read_size = this_read;
+        uint32_t ibi_retries = 0U;
         i3c_hl_status_t status;
 
         if (addr32 > 0xffffU)
@@ -92,17 +225,35 @@ int vl53l9_read(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_t
 
         command[0] = (uint8_t)((addr32 >> 8) & 0xffU);
         command[1] = (uint8_t)(addr32 & 0xffU);
-        status = i3c_hl_sdr_privwriteread(device->i3c_address,
-                                          command,
-                                          sizeof(command),
-                                          &p_values[offset],
-                                          &read_size);
+        status = privwriteread_with_ibi_retry(device->i3c_address,
+                                              command,
+                                              sizeof(command),
+                                              &p_values[offset],
+                                              this_read,
+                                              &read_size,
+                                              &ibi_retries);
         if (status != i3c_hl_status_ok)
         {
+            record_i3c_error("read",
+                             device->i3c_address,
+                             (uint16_t)addr32,
+                             this_read,
+                             read_size,
+                             offset,
+                             ibi_retries,
+                             status);
             return i3c_status_to_vl53l9_error(status);
         }
         if (read_size != this_read)
         {
+            record_i3c_error("read-short",
+                             device->i3c_address,
+                             (uint16_t)addr32,
+                             this_read,
+                             read_size,
+                             offset,
+                             ibi_retries,
+                             status);
             return VL53L9_ERROR_PLATFORM;
         }
 
@@ -187,6 +338,7 @@ int vl53l9_write(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_
         const uint32_t payload = (remaining < max_payload) ? remaining : max_payload;
         const uint32_t addr32 = (uint32_t)address + offset;
         const uint32_t write_size = payload + 2U;
+        uint32_t ibi_retries = 0U;
         i3c_hl_status_t status;
 
         if (addr32 > 0xffffU)
@@ -198,9 +350,17 @@ int vl53l9_write(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_
         data_write[1] = (uint8_t)(addr32 & 0xffU);
         memcpy(&data_write[2], &p_values[offset], payload);
 
-        status = i3c_hl_sdr_privwrite(device->i3c_address, data_write, write_size);
+        status = privwrite_with_ibi_retry(device->i3c_address, data_write, write_size, &ibi_retries);
         if (status != i3c_hl_status_ok)
         {
+            record_i3c_error("write",
+                             device->i3c_address,
+                             (uint16_t)addr32,
+                             write_size,
+                             write_size,
+                             offset,
+                             ibi_retries,
+                             status);
             return i3c_status_to_vl53l9_error(status);
         }
 

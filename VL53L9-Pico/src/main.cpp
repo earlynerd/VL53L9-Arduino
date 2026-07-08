@@ -309,6 +309,35 @@ bool printVl53Status(const char *label, int status)
   return status == VL53L9_ERROR_NONE;
 }
 
+void printVl53PlatformError()
+{
+  const vl53l9_arduino_platform_error_t *error = vl53l9_arduino_get_last_error();
+  if ((error == nullptr) || (error->valid == 0U)) {
+    Serial.println("VL53L9 platform error detail: no I3C failure recorded");
+    return;
+  }
+
+  Serial.print("VL53L9 platform error detail: op=");
+  Serial.print(error->operation != nullptr ? error->operation : "unknown");
+  Serial.print(", addr=");
+  printHex8(error->i3c_address);
+  Serial.print(", reg=");
+  printHex16(error->register_address);
+  Serial.print(", requested=");
+  Serial.print(error->requested_size);
+  Serial.print(", actual=");
+  Serial.print(error->actual_size);
+  Serial.print(", chunk_offset=");
+  Serial.print(error->chunk_offset);
+  Serial.print(", ibi_retries=");
+  Serial.print(error->ibi_retries);
+  Serial.print(", i3c_status=");
+  Serial.print(error->i3c_status);
+  Serial.print(" (");
+  Serial.print(vl53l9_arduino_i3c_status_name(error->i3c_status));
+  Serial.println(')');
+}
+
 const char *syncModeName(vl53l9_sync_mode_t mode)
 {
   switch (mode) {
@@ -923,8 +952,10 @@ bool runStDriverInit()
   vl53l9_arduino_device_set_power_config(&gVl53Device, VDDA_2V8, VDDIO_1V8, kHostClkInHz);
 
   Serial.println("Starting ST vl53l9_init()");
+  vl53l9_arduino_clear_last_error();
   const int initStatus = vl53l9_init(&gVl53Device);
   if (!printVl53Status("vl53l9_init", initStatus)) {
+    printVl53PlatformError();
     return false;
   }
 
