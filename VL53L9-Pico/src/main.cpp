@@ -14,7 +14,7 @@
 #endif
 
 #if VL53L9_ENABLE_ST_DRIVER
-#include "vl53l9_arduino_port.h"
+#include "VL53L9CX.h"
 #endif
 
 #ifndef VL53L9_HOST_XSHUT_PIN
@@ -70,7 +70,7 @@
 #endif
 
 #ifndef VL53L9_I3C_DISABLE_INTERRUPTS
-#define VL53L9_I3C_DISABLE_INTERRUPTS 1
+#define VL53L9_I3C_DISABLE_INTERRUPTS 0
 #endif
 
 #ifndef VL53L9_I3C_DYNAMIC_ADDRESS
@@ -95,6 +95,14 @@
 
 #ifndef VL53L9_RANGING_FRAME_TIMEOUT_MS
 #define VL53L9_RANGING_FRAME_TIMEOUT_MS 2000
+#endif
+
+#ifndef VL53L9_RANGING_FRAME_POLL_INTERVAL_MS
+#define VL53L9_RANGING_FRAME_POLL_INTERVAL_MS 5
+#endif
+
+#ifndef VL53L9_RANGING_FRAME_WAIT_MODE
+#define VL53L9_RANGING_FRAME_WAIT_MODE VL53L9CX_FRAME_WAIT_POLL
 #endif
 
 #ifndef VL53L9_RANGING_SYNC_MODE
@@ -143,104 +151,23 @@ constexpr uint32_t kRangingFramePeriodUs = VL53L9_RANGING_FRAME_PERIOD_US;
 constexpr uint16_t kRangingExposureMs = VL53L9_RANGING_EXPOSURE_MS;
 constexpr uint16_t kRangingSampleCount = VL53L9_RANGING_SAMPLE_COUNT;
 constexpr uint32_t kRangingFrameTimeoutMs = VL53L9_RANGING_FRAME_TIMEOUT_MS;
+constexpr uint16_t kRangingFramePollIntervalMs = VL53L9_RANGING_FRAME_POLL_INTERVAL_MS;
 constexpr vl53l9_sync_mode_t kRangingSyncMode = VL53L9_RANGING_SYNC_MODE;
 constexpr vl53l9_power_mode_t kRangingPowerMode = VL53L9_RANGING_POWER_MODE;
 constexpr vl53l9_context_t kRangingContext = VL53L9_RANGING_CONTEXT;
+constexpr VL53L9CXFrameWaitMode kRangingFrameWaitMode = VL53L9_RANGING_FRAME_WAIT_MODE;
 
-constexpr uint16_t rawResolutionForBinning(uint8_t binning)
-{
-  switch (binning) {
-    case 2:
-      return 54U * 42U;
-    case 4:
-      return 24U * 24U;
-    case 6:
-      return 18U * 14U;
-    case 8:
-      return 12U * 10U;
-    case 12:
-      return 8U * 8U;
-    case 24:
-      return 4U * 4U;
-    default:
-      return 0;
-  }
-}
-
-constexpr uint8_t rawWidthForBinning(uint8_t binning)
-{
-  switch (binning) {
-    case 2:
-      return 54;
-    case 4:
-      return 24;
-    case 6:
-      return 18;
-    case 8:
-      return 12;
-    case 12:
-      return 8;
-    case 24:
-      return 4;
-    default:
-      return 0;
-  }
-}
-
-constexpr uint8_t outputWidthForBinning(uint8_t binning)
-{
-  return rawWidthForBinning(binning);
-}
-
-constexpr uint8_t outputHeightForBinning(uint8_t binning)
-{
-  switch (binning) {
-    case 2:
-      return 42;
-    case 4:
-      return 20;
-    case 6:
-      return 14;
-    case 8:
-      return 10;
-    case 12:
-      return 6;
-    case 24:
-      return 4;
-    default:
-      return 0;
-  }
-}
-
-constexpr uint8_t outputYOffsetForBinning(uint8_t binning)
-{
-  switch (binning) {
-    case 4:
-      return 2;
-    case 12:
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-constexpr uint16_t rawBufferSizeForBinning(uint8_t binning)
-{
-  const uint16_t resolution = rawResolutionForBinning(binning);
-  return resolution == 0 ? 0 : static_cast<uint16_t>((resolution * 6U) + (resolution / 2U) + VL53L9_STATUS_SIZE);
-}
-
-constexpr uint16_t kRangingRawResolution = rawResolutionForBinning(kRangingBinning);
-constexpr uint8_t kRangingRawWidth = rawWidthForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputWidth = outputWidthForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputHeight = outputHeightForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputYOffset = outputYOffsetForBinning(kRangingBinning);
-constexpr uint16_t kRangingRawBufferCapacity = rawBufferSizeForBinning(kRangingBinning);
+constexpr uint16_t kRangingRawResolution = VL53L9CX::rawResolutionForBinning(kRangingBinning);
+constexpr uint8_t kRangingRawWidth = VL53L9CX::rawWidthForBinning(kRangingBinning);
+constexpr uint8_t kRangingOutputWidth = VL53L9CX::outputWidthForBinning(kRangingBinning);
+constexpr uint8_t kRangingOutputHeight = VL53L9CX::outputHeightForBinning(kRangingBinning);
+constexpr uint8_t kRangingOutputYOffset = VL53L9CX::outputYOffsetForBinning(kRangingBinning);
+constexpr uint16_t kRangingRawBufferCapacity = VL53L9CX::rawBufferSizeForBinning(kRangingBinning);
 
 static_assert(kRangingRawResolution > 0, "Unsupported VL53L9_RANGING_BINNING");
 static_assert(kRangingRawBufferCapacity > VL53L9_STATUS_SIZE, "Invalid VL53L9 raw frame buffer size");
 
-vl53l9_arduino_device_t gVl53Device;
+VL53L9CX gSensor;
 uint8_t gFrameBuffer[kRangingRawBufferCapacity];
 #endif
 
@@ -794,9 +721,9 @@ bool readAndPrintRevisionRegisters()
 }
 
 #if VL53L9_ENABLE_ST_DRIVER
-bool configureRanging(vl53l9_arduino_device_t *device, uint16_t *rawBufferSize)
+bool configureRanging(VL53L9CX *sensor, uint16_t *rawBufferSize)
 {
-  int status = vl53l9_get_raw_buffer_size(kRangingBinning, rawBufferSize);
+  int status = sensor->getRawBufferSize(kRangingBinning, rawBufferSize);
   if (!printVl53Status("vl53l9_get_raw_buffer_size", status)) {
     return false;
   }
@@ -830,29 +757,34 @@ bool configureRanging(vl53l9_arduino_device_t *device, uint16_t *rawBufferSize)
   Serial.print(kRangingExposureMs);
   Serial.print(" ms, buffer ");
   Serial.print(*rawBufferSize);
-  Serial.println(" bytes");
+  Serial.print(" bytes, wait ");
+  Serial.print(VL53L9CX::frameWaitModeName(kRangingFrameWaitMode));
+  Serial.print("/");
+  Serial.print(kRangingFramePollIntervalMs);
+  Serial.print(" ms");
+  Serial.println();
 
-  status = vl53l9_set_sync_mode(device, kRangingSyncMode);
+  status = sensor->setSyncMode(kRangingSyncMode);
   if (!printVl53Status("vl53l9_set_sync_mode", status)) {
     return false;
   }
-  status = vl53l9_set_power_mode(device, kRangingPowerMode);
+  status = sensor->setPowerMode(kRangingPowerMode);
   if (!printVl53Status("vl53l9_set_power_mode", status)) {
     return false;
   }
-  status = vl53l9_set_frame_period(device, kRangingFramePeriodUs);
+  status = sensor->setFramePeriod(kRangingFramePeriodUs);
   if (!printVl53Status("vl53l9_set_frame_period", status)) {
     return false;
   }
-  status = vl53l9_set_context(device, kRangingContext);
+  status = sensor->setContext(kRangingContext);
   if (!printVl53Status("vl53l9_set_context", status)) {
     return false;
   }
-  status = vl53l9_set_binning(device, kRangingContext, kRangingBinning);
+  status = sensor->setBinning(kRangingContext, kRangingBinning);
   if (!printVl53Status("vl53l9_set_binning", status)) {
     return false;
   }
-  status = vl53l9_set_exposure(device, kRangingContext, kRangingExposureMs);
+  status = sensor->setExposure(kRangingContext, kRangingExposureMs);
   if (!printVl53Status("vl53l9_set_exposure", status)) {
     return false;
   }
@@ -860,39 +792,49 @@ bool configureRanging(vl53l9_arduino_device_t *device, uint16_t *rawBufferSize)
   return true;
 }
 
-bool waitForRangingFrame(vl53l9_arduino_device_t *device, uint16_t frameIndex)
+bool waitForRangingFrame(VL53L9CX *sensor, uint16_t frameIndex)
 {
-  const uint32_t startMs = millis();
-  uint8_t ready = 0U;
+  VL53L9CXFrameWaitResult waitResult;
+  const int status = sensor->waitForFrame(kRangingFrameTimeoutMs,
+                                          &waitResult,
+                                          kRangingFrameWaitMode,
+                                          kRangingFramePollIntervalMs);
+  if (status == VL53L9_ERROR_NONE) {
+    Serial.print("Frame ");
+    Serial.print(frameIndex);
+    Serial.print(" ready after ");
+    Serial.print(waitResult.elapsed_ms);
+    Serial.print(" ms, HOST_INTR=");
+    Serial.print(digitalRead(kHostIntrPin));
+    Serial.print(", polls=");
+    Serial.print(waitResult.polls);
+    if (kRangingFrameWaitMode != VL53L9CX_FRAME_WAIT_POLL) {
+      Serial.print(", gpio_active_seen=");
+      Serial.print(waitResult.interrupt_observed_active ? "yes" : "no");
+      Serial.print(", last_gpio=");
+      Serial.print(waitResult.interrupt_level);
+    }
+    Serial.println();
+    return true;
+  }
 
-  while (millis() - startMs < kRangingFrameTimeoutMs) {
-    const int status = vl53l9_poll_frame(device, &ready);
-    if (status != VL53L9_ERROR_NONE) {
-      printVl53Status("vl53l9_poll_frame", status);
-      return false;
-    }
-    if (ready != 0U) {
-      Serial.print("Frame ");
-      Serial.print(frameIndex);
-      Serial.print(" ready after ");
-      Serial.print(millis() - startMs);
-      Serial.print(" ms, HOST_INTR=");
-      Serial.println(digitalRead(kHostIntrPin));
-      return true;
-    }
-    delay(5);
+  if (status != VL53L9_ERROR_TIMEOUT) {
+    printVl53Status("vl53l9_poll_frame", status);
+    return false;
   }
 
   Serial.print("Timed out waiting for frame ");
   Serial.print(frameIndex);
   Serial.print(" after ");
-  Serial.print(kRangingFrameTimeoutMs);
+  Serial.print(waitResult.elapsed_ms);
   Serial.print(" ms, HOST_INTR=");
-  Serial.println(digitalRead(kHostIntrPin));
+  Serial.print(digitalRead(kHostIntrPin));
+  Serial.print(", polls=");
+  Serial.println(waitResult.polls);
   return false;
 }
 
-bool runStRangingSample(vl53l9_arduino_device_t *device)
+bool runStRangingSample(VL53L9CX *sensor)
 {
   if (!kEnableRangingSample) {
     Serial.println("Ranging sample disabled.");
@@ -900,7 +842,7 @@ bool runStRangingSample(vl53l9_arduino_device_t *device)
   }
 
   uint16_t rawBufferSize = 0U;
-  if (!configureRanging(device, &rawBufferSize)) {
+  if (!configureRanging(sensor, &rawBufferSize)) {
     return false;
   }
 
@@ -909,7 +851,7 @@ bool runStRangingSample(vl53l9_arduino_device_t *device)
     return true;
   }
 
-  int status = vl53l9_start(device);
+  int status = sensor->start();
   if (!printVl53Status("vl53l9_start", status)) {
     return false;
   }
@@ -917,19 +859,19 @@ bool runStRangingSample(vl53l9_arduino_device_t *device)
   bool ok = true;
   for (uint16_t frameIndex = 1; frameIndex <= kRangingSampleCount; ++frameIndex) {
     if (kRangingSyncMode == VL53L9_SYNC_MANUAL) {
-      status = vl53l9_trigger_frame(device);
+      status = sensor->triggerFrame();
       if (!printVl53Status("vl53l9_trigger_frame", status)) {
         ok = false;
         break;
       }
     }
 
-    if (!waitForRangingFrame(device, frameIndex)) {
+    if (!waitForRangingFrame(sensor, frameIndex)) {
       ok = false;
       break;
     }
 
-    status = vl53l9_get_frame(device, gFrameBuffer, rawBufferSize);
+    status = sensor->readFrame(gFrameBuffer, rawBufferSize);
     if (!printVl53Status("vl53l9_get_frame", status)) {
       ok = false;
       break;
@@ -938,7 +880,7 @@ bool runStRangingSample(vl53l9_arduino_device_t *device)
     printFrameSummary(gFrameBuffer, rawBufferSize, frameIndex);
   }
 
-  status = vl53l9_stop(device);
+  status = sensor->stop();
   if (!printVl53Status("vl53l9_stop", status)) {
     ok = false;
   }
@@ -948,19 +890,19 @@ bool runStRangingSample(vl53l9_arduino_device_t *device)
 
 bool runStDriverInit()
 {
-  vl53l9_arduino_device_init(&gVl53Device, kI3cDynamicAddress);
-  vl53l9_arduino_device_set_power_config(&gVl53Device, VDDA_2V8, VDDIO_1V8, kHostClkInHz);
+  gSensor.setAddress(kI3cDynamicAddress);
+  gSensor.setPowerConfig(VDDA_2V8, VDDIO_1V8, kHostClkInHz);
+  gSensor.setInterruptPin(kHostIntrPin);
 
   Serial.println("Starting ST vl53l9_init()");
-  vl53l9_arduino_clear_last_error();
-  const int initStatus = vl53l9_init(&gVl53Device);
+  const int initStatus = gSensor.init();
   if (!printVl53Status("vl53l9_init", initStatus)) {
     printVl53PlatformError();
     return false;
   }
 
   uint32_t deviceId = 0;
-  const int idStatus = vl53l9_get_device_id(&gVl53Device, &deviceId);
+  const int idStatus = gSensor.getDeviceId(&deviceId);
   Serial.print("vl53l9_get_device_id: ");
   Serial.print(idStatus);
   Serial.print(" (");
@@ -1014,7 +956,7 @@ void runHardwareBringup()
   }
 
   Serial.println("ST driver initialization passed.");
-  if (!runStRangingSample(&gVl53Device)) {
+  if (!runStRangingSample(&gSensor)) {
     Serial.println("ST ranging sample failed");
     return;
   }

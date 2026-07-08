@@ -1,0 +1,22 @@
+{
+  "name": "VL53L9CX_Arduino",
+  "version": "0.1.0",
+  "description": "Arduino-Pico helper wrapper for ST VL53L9CX I3C bring-up on RP2350",
+  "keywords": [
+    "vl53l9cx",
+    "tof",
+    "i3c",
+    "rp2350"
+  ],
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "raspberrypi"
+  ],
+  "dependencies": [
+    {
+      "name": "vl53l9_arduino"
+    }
+  ]
+}

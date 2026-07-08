@@ -4,9 +4,8 @@ Experimental Arduino-Pico / RP2350 bring-up work for STMicroelectronics'
 VL53L9CX time-of-flight depth sensor module.
 
 The immediate hardware target is an ST X-NUCLEO-53L9A1 board mated to an
-Adafruit Metro RP2350. The project is currently focused on proving the I3C
-transport and then wrapping or porting ST's VL53L9 driver stack far enough to
-initialize the sensor and read frames.
+Adafruit Metro RP2350. The project has now proven the I3C transport, ST driver
+initialization, firmware patch upload, and raw frame reads on that hardware.
 
 This is active bring-up code, not a finished Arduino library.
 
@@ -27,17 +26,24 @@ Implemented so far:
 - Opt-in Arduino-Pico platform layer for ST's portable `vl53l9` driver.
 - Opt-in build environment that copies selected ST component files from the
   local ignored ST package into the PlatformIO build directory.
+- Arduino-style `VL53L9CX_Arduino` wrapper library for ST init, ranging
+  configuration, stream lifecycle, frame-ready waiting, raw frame reads, and
+  raw frame geometry helpers.
 - Opt-in raw ranging smoke test after ST initialization: configure a conservative
   profile, start streaming, poll frame-ready, read a few I3C frames, print a
   compact depth summary, then stop streaming.
+- Hardware-validated `rp2350_st_driver` path on the X-NUCLEO-53L9A1 + Metro
+  RP2350: ENTDAA, dynamic address ACK, ST `vl53l9_init()`, firmware patch
+  boot, device ID readback, ranging configuration, three raw frame reads, and
+  `vl53l9_stop()`.
+- IBI drain-and-retry handling in the Arduino platform wrapper so ST driver
+  reads/writes can tolerate retryable I3C arbitration events.
 
 Not done yet:
 
-- Hardware validation of the current bring-up sketch.
-- Hardware validation of the ST `vl53l9_init()` path and firmware patch upload.
-- Hardware validation of raw frame acquisition.
 - Post-processing into finalized depth products.
 - Interrupt/IBI-driven frame-ready handling.
+- Higher-speed I3C characterization above 2 MHz.
 
 ## Hardware Target
 
@@ -76,6 +82,9 @@ VL53L9-Pico/
 
   lib/vl53l9_arduino/
     Arduino-Pico platform callbacks for ST's portable VL53L9 driver.
+
+  lib/VL53L9CX_Arduino/
+    Arduino-style C++ wrapper around the local ST driver platform port.
 
   scripts/gen_i3c_pio.py
     PlatformIO pre-build script that generates i3c.pio.h.
@@ -133,6 +142,25 @@ and compiles them from there.
 After the same transport checks pass, `rp2350_st_driver` continues through
 `vl53l9_init()` and then runs a short raw-frame ranging smoke test.
 
+## Arduino Wrapper Library
+
+`VL53L9-Pico/lib/VL53L9CX_Arduino` is the first Arduino-style packaging layer.
+It is importable from sketches with:
+
+```cpp
+#include <VL53L9CX.h>
+```
+
+The wrapper owns the ST device handle after I3C dynamic address assignment and
+provides methods for `init()`, ranging configuration, `start()`,
+`waitForFrame()`, `readFrame()`, `ackFrame()`, and `stop()`. It also exposes
+raw frame geometry helpers such as `rawBufferSizeForBinning()`.
+
+This is still a local project library rather than a standalone Arduino Library
+Manager package. It depends on the generated/staged ST headers from
+`gen_st_vl53l9.py`, so the original ST source package must remain available
+locally for the `rp2350_st_driver` build.
+
 ## Configuration
 
 Board wiring and conservative bring-up settings are controlled from
@@ -152,7 +180,7 @@ Board wiring and conservative bring-up settings are controlled from
 -DVL53L9_I3C_SM=1
 -DVL53L9_I3C_DRIVE_STRENGTH_MA=12
 -DVL53L9_I3C_CLK_KHZ=1000
--DVL53L9_I3C_DISABLE_INTERRUPTS=1
+-DVL53L9_I3C_DISABLE_INTERRUPTS=0
 -DVL53L9_I3C_DYNAMIC_ADDRESS=0x52
 -DVL53L9_RANGING_SYNC_MODE=VL53L9_SYNC_AUTONOMOUS
 -DVL53L9_RANGING_POWER_MODE=VL53L9_POWER_REGULAR
@@ -162,11 +190,15 @@ Board wiring and conservative bring-up settings are controlled from
 -DVL53L9_RANGING_EXPOSURE_MS=5
 -DVL53L9_RANGING_SAMPLE_COUNT=3
 -DVL53L9_RANGING_FRAME_TIMEOUT_MS=2000
+-DVL53L9_RANGING_FRAME_POLL_INTERVAL_MS=5
+-DVL53L9_RANGING_FRAME_WAIT_MODE=VL53L9CX_FRAME_WAIT_POLL
 ```
 
-For first hardware tests, leave the I3C clock at 1 MHz and interrupt locking
-enabled. Faster clocks and unlocked transfers should wait until ENTDAA and
-small register reads are reliable on a logic analyzer.
+The hardware-validated setting for the X-NUCLEO-53L9A1 + Metro RP2350 keeps
+interrupt locking disabled. With interrupt locking enabled, ST driver init has
+been observed to fail on this setup. The default I3C clock remains 1 MHz for
+margin; hardware testing has been stable at speeds up to 2 MHz, while higher
+rates still need transport work or signal-integrity investigation.
 
 The first ranging test defaults to binning 12, which keeps each raw frame small
 while still exercising ST's `vl53l9_start()`, `vl53l9_poll_frame()`,
@@ -199,11 +231,12 @@ I3C transport parameters:
 - `VL53L9_I3C_DRIVE_STRENGTH_MA`: GPIO drive strength. The default is 12 mA for
   sharper I3C edges through the X-NUCLEO level shifter.
 - `VL53L9_I3C_CLK_KHZ`: I3C SDR clock in kHz. The default 1 MHz is intentionally
-  conservative for first validation. Higher rates should wait until address
-  assignment and frame reads are reliable on hardware.
+  conservative. On the current X-NUCLEO-53L9A1 + Metro RP2350 hardware, ST init
+  and raw frame reads have been observed working at up to 2 MHz. Faster rates
+  are not yet reliable.
 - `VL53L9_I3C_DISABLE_INTERRUPTS`: wraps low-level PIO transfers in interrupt
-  locking. This reduces timing jitter while bring-up is still unknown, at the
-  cost of temporarily increasing interrupt latency.
+  locking when set to `1`. The hardware-validated default is `0`. On this setup,
+  `1` prevents the ST driver init/ranging path from completing reliably.
 - `VL53L9_I3C_DYNAMIC_ADDRESS`: dynamic I3C address assigned during ENTDAA.
   `0x52` matches ST's default address convention.
 
@@ -236,6 +269,13 @@ Ranging-profile parameters:
   it stops streaming.
 - `VL53L9_RANGING_FRAME_TIMEOUT_MS`: host-side timeout while waiting for each
   frame-ready indication.
+- `VL53L9_RANGING_FRAME_POLL_INTERVAL_MS`: delay between frame-ready register
+  polls in the wrapper's wait loop.
+- `VL53L9_RANGING_FRAME_WAIT_MODE`: frame wait strategy. The known-good default
+  is `VL53L9CX_FRAME_WAIT_POLL`, which uses ST's frame-ready register.
+  `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_LOW` and
+  `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH` use `HOST_INTR` as a hint, but still
+  confirm readiness with the ST register before reading the frame.
 
 Binning deserves special attention. In the ST driver, accepted working binning
 values are currently `2`, `4`, `6`, `8`, `12`, and `24`. The header mentions
@@ -308,7 +348,7 @@ vl53l9_init: 0 (OK)
 vl53l9_get_device_id: 0 (OK), device ID ...
 Ranging config: sync autonomous, power regular, context short, binning 12, ...
 vl53l9_start: 0 (OK)
-Frame 1 ready after ...
+Frame 1 ready after ..., polls=...
 vl53l9_get_frame: 0 (OK)
 Frame 1: sensor counter ...
 Depth summary: ...
@@ -317,9 +357,10 @@ Depth grid, raw depth units:
 vl53l9_stop: 0 (OK)
 ```
 
-This path is still a hardware smoke test. The printed depth grid is parsed
-directly from ST's raw I3C frame layout and is meant to validate payload shape,
-not to replace ST's full post-processing pipeline.
+This path is hardware-validated on the direct X-NUCLEO-53L9A1 + Metro RP2350
+setup with interrupt locking disabled and I3C at or below 2 MHz. The printed
+depth grid is parsed directly from ST's raw I3C frame layout and is meant to
+validate payload shape, not to replace ST's full post-processing pipeline.
 
 ## Raw Frame Format And Post-Processing
 
@@ -409,9 +450,6 @@ copying ST-provided components into this repository.
 
 ## Roadmap
 
-- Validate the current transport sketch on the Metro RP2350 + X-NUCLEO hardware.
-- Validate the optional ST driver environment on hardware.
-- Verify `vl53l9_init()` and patch revision after firmware upload.
-- Validate the raw-frame ranging smoke test.
 - Add post-processing or a higher-level Arduino API for depth products.
 - Decide whether frame-ready should use the interrupt pin, I3C IBI, or both.
+- Characterize and improve I3C reliability above 2 MHz.

@@ -35,7 +35,7 @@ void setup_i3c(void)
     cfg.pio_index = 0;                               // 0 = pio0, 1 = pio1
     cfg.sm = 1;                                      // state machine 0..3
     cfg.drive_strength_mA = 12;                      // 2, 4, 8, or 12
-    cfg.disable_interrupts = true;                   // upstream-compatible default
+    cfg.disable_interrupts = false;                  // VL53L9 validated default
 
     i3c_init_config(&cfg);
     i3c_hl_set_clkrate(1000);                        // start conservatively
@@ -61,7 +61,7 @@ PIO instance when switching back to I3C.
 ## Interrupt Locking
 
 Upstream I3CBlaster disables interrupts around most bus transactions to protect
-PIO timing. This port keeps that behavior by default, but makes it configurable:
+PIO timing. This port makes that behavior configurable:
 
 ```c
 cfg.disable_interrupts = false;
@@ -69,11 +69,14 @@ cfg.disable_interrupts = false;
 i3c_hl_set_interrupt_locking(false);
 ```
 
-Disabling the lock should be treated as experimental. Start at a low I3C clock,
-verify with a logic analyzer, and watch for corrupted reads or unexpected NACKs.
-The safest first VL53L9CX bring-up path is to keep locking enabled for ENTDAA,
-CCC setup, and small register probes. After the sensor is responding reliably,
-try disabling it at low clock speed before attempting full frame reads.
+For the current X-NUCLEO-53L9A1 + Metro RP2350 setup, the hardware-validated
+VL53L9 path requires interrupt locking disabled. With locking enabled,
+`vl53l9_init()` has been observed to fail even though ENTDAA and small private
+register reads can pass.
+
+Keep the I3C clock conservative while validating changes. The current hardware
+path has worked at 1 MHz and up to 2 MHz with interrupt locking disabled; higher
+rates are not yet reliable.
 
 One bug from the upstream code was also fixed here: `i3c_hl_ddr_read()` no
 longer returns from its zero-length parameter check after disabling interrupts.
@@ -102,8 +105,12 @@ HOST SDA    -> GPIO20
 HOST SCL    -> GPIO21
 ```
 
-The validation sketch does not run the full ST firmware patch/init sequence
-yet. It starts the 12 MHz host clock, holds/releases XSHUT, initializes the PIO
-I3C transport at 1 MHz, runs RSTDAA and ENTDAA with dynamic address `0x52`,
-checks that the address ACKs, then attempts private SDR reads of the model,
-ROM revision, patch revision, and FSM registers.
+The validation sketch starts the 12 MHz host clock, holds/releases XSHUT,
+initializes the PIO I3C transport at 1 MHz by default, runs RSTDAA and ENTDAA
+with dynamic address `0x52`, checks that the address ACKs, then attempts private
+SDR reads of the model, ROM revision, patch revision, and FSM registers.
+
+The optional `rp2350_st_driver` environment continues into ST's init path. On
+hardware it has completed `vl53l9_init()`, firmware patch boot, ranging
+configuration, raw frame reads, and `vl53l9_stop()` when interrupt locking is
+disabled and the I3C clock is at or below 2 MHz.

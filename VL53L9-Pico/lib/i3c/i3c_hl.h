@@ -45,7 +45,7 @@ extern "C" {
 #endif
 
 #ifndef I3C_HL_DEFAULT_DISABLE_INTERRUPTS
-#define I3C_HL_DEFAULT_DISABLE_INTERRUPTS 1
+#define I3C_HL_DEFAULT_DISABLE_INTERRUPTS 0
 #endif
 
 typedef enum
@@ -71,7 +71,7 @@ typedef struct
     uint8_t pio_index;            // 0 = pio0, 1 = pio1
     uint8_t sm;                   // PIO state machine index, 0..3
     uint8_t drive_strength_mA;    // valid values: 2, 4, 8, 12
-    bool disable_interrupts;      // preserves original timing behavior when true
+    bool disable_interrupts;      // true preserves upstream interrupt-locking behavior
 } i3c_hl_config_t;
 
 i3c_hl_config_t i3c_hl_default_config(uint8_t sda_pin);
