@@ -2,6 +2,15 @@
 
 namespace
 {
+volatile bool g_frame_interrupt_latched = false;
+volatile uint32_t g_frame_interrupt_count = 0U;
+
+void frameInterruptIsr()
+{
+    g_frame_interrupt_latched = true;
+    g_frame_interrupt_count++;
+}
+
 void printHex8(Print &out, uint8_t value)
 {
     if (value < 0x10U)
@@ -40,14 +49,17 @@ void printPaddedDepth(Print &out, uint16_t value)
 }
 } // namespace
 
-VL53L9CX::VL53L9CX() : interrupt_pin_(-1)
+VL53L9CX::VL53L9CX()
+    : interrupt_pin_(-1),
+      interrupt_attached_(false),
+      interrupt_wait_mode_(VL53L9CX_FRAME_WAIT_POLL)
 {
     vl53l9_arduino_device_init(&device_, 0x52U);
 }
 
 void VL53L9CX::setAddress(uint8_t dynamic_address)
 {
-    vl53l9_arduino_device_init(&device_, dynamic_address);
+    device_.i3c_address = dynamic_address & 0x7fU;
 }
 
 void VL53L9CX::setPowerConfig(vl53l9_vdda_t vdda, vl53l9_vddio_t vddio, uint32_t ext_clock_hz)
@@ -57,7 +69,89 @@ void VL53L9CX::setPowerConfig(vl53l9_vdda_t vdda, vl53l9_vddio_t vddio, uint32_t
 
 void VL53L9CX::setInterruptPin(int8_t interrupt_pin)
 {
+    const bool was_attached = interrupt_attached_;
+    const VL53L9CXFrameWaitMode saved_wait_mode = interrupt_wait_mode_;
+
+    if (was_attached)
+    {
+        detachFrameInterrupt();
+    }
     interrupt_pin_ = interrupt_pin;
+    if (was_attached)
+    {
+        (void)attachFrameInterrupt(saved_wait_mode);
+    }
+}
+
+bool VL53L9CX::attachFrameInterrupt(VL53L9CXFrameWaitMode mode)
+{
+    if ((interrupt_pin_ < 0) || (mode == VL53L9CX_FRAME_WAIT_POLL))
+    {
+        return false;
+    }
+
+    if (interrupt_attached_)
+    {
+        detachFrameInterrupt();
+    }
+
+    const int interrupt_number = digitalPinToInterrupt(static_cast<uint8_t>(interrupt_pin_));
+    if (interrupt_number == NOT_AN_INTERRUPT)
+    {
+        return false;
+    }
+
+    clearFrameInterruptLatch();
+    pinMode(static_cast<uint8_t>(interrupt_pin_), INPUT);
+    attachInterrupt(interrupt_number,
+                    frameInterruptIsr,
+                    mode == VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH ? RISING : FALLING);
+    interrupt_attached_ = true;
+    interrupt_wait_mode_ = mode;
+    return true;
+}
+
+void VL53L9CX::detachFrameInterrupt()
+{
+    if (!interrupt_attached_ || (interrupt_pin_ < 0))
+    {
+        interrupt_attached_ = false;
+        return;
+    }
+
+    const int interrupt_number = digitalPinToInterrupt(static_cast<uint8_t>(interrupt_pin_));
+    if (interrupt_number != NOT_AN_INTERRUPT)
+    {
+        detachInterrupt(interrupt_number);
+    }
+    interrupt_attached_ = false;
+    interrupt_wait_mode_ = VL53L9CX_FRAME_WAIT_POLL;
+}
+
+void VL53L9CX::clearFrameInterruptLatch()
+{
+    noInterrupts();
+    g_frame_interrupt_latched = false;
+    interrupts();
+}
+
+bool VL53L9CX::frameInterruptAttached() const
+{
+    return interrupt_attached_;
+}
+
+bool VL53L9CX::frameInterruptLatched() const
+{
+    return g_frame_interrupt_latched;
+}
+
+uint32_t VL53L9CX::frameInterruptCount() const
+{
+    uint32_t count;
+    noInterrupts();
+    count = g_frame_interrupt_count;
+    interrupts();
+    return count;
 }
 
 int VL53L9CX::init()
@@ -143,12 +237,18 @@ int VL53L9CX::setExposure(vl53l9_context_t context, uint16_t exposure_ms)
 
 int VL53L9CX::start()
 {
+    clearFrameInterruptLatch();
     return vl53l9_start(&device_);
 }
 
 int VL53L9CX::stop()
 {
-    return vl53l9_stop(&device_);
+    const int status = vl53l9_stop(&device_);
+    if (status == VL53L9_ERROR_NONE)
+    {
+        clearFrameInterruptLatch();
+    }
+    return status;
 }
 
 int VL53L9CX::triggerFrame()
@@ -179,8 +279,6 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
                            VL53L9CXFrameWaitMode mode,
                            uint16_t poll_interval_ms)
 {
-    const uint32_t start_ms = millis();
-    uint32_t last_poll_ms = start_ms - static_cast<uint32_t>(poll_interval_ms);
     VL53L9CXFrameWaitResult local_result;
 
     if (poll_interval_ms == 0U)
@@ -188,22 +286,32 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
         poll_interval_ms = 1U;
     }
 
+    const uint32_t start_ms = millis();
+    uint32_t last_poll_ms = start_ms - static_cast<uint32_t>(poll_interval_ms);
+
     while ((millis() - start_ms) < timeout_ms)
     {
         const uint32_t now = millis();
         int interrupt_level = -1;
         const bool gpio_active = interruptIsActive(mode, &interrupt_level);
+        const bool latch_active = (mode != VL53L9CX_FRAME_WAIT_POLL) && frameInterruptLatched();
         const bool poll_due = (now - last_poll_ms) >= poll_interval_ms;
 
         local_result.interrupt_level = interrupt_level;
         local_result.interrupt_observed_active = local_result.interrupt_observed_active || gpio_active;
+        local_result.interrupt_latched = local_result.interrupt_latched || latch_active;
+        local_result.interrupt_count = frameInterruptCount();
 
-        if ((mode == VL53L9CX_FRAME_WAIT_POLL) || gpio_active || poll_due)
+        if (latch_active || gpio_active || poll_due)
         {
             bool ready = false;
             const int status = pollFrame(&ready);
             local_result.polls++;
             last_poll_ms = now;
+            if (latch_active && !ready)
+            {
+                clearFrameInterruptLatch();
+            }
             if (status != VL53L9_ERROR_NONE)
             {
                 local_result.elapsed_ms = now - start_ms;
@@ -240,7 +348,12 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
 
 int VL53L9CX::readFrame(uint8_t *buffer, uint16_t size)
 {
-    return vl53l9_get_frame(&device_, buffer, size);
+    const int status = vl53l9_get_frame(&device_, buffer, size);
+    if (status == VL53L9_ERROR_NONE)
+    {
+        clearFrameInterruptLatch();
+    }
+    return status;
 }
 
 int VL53L9CX::readFrameAfterWait(uint8_t *buffer,
@@ -260,7 +373,12 @@ int VL53L9CX::readFrameAfterWait(uint8_t *buffer,
 
 int VL53L9CX::ackFrame()
 {
-    return vl53l9_get_frame(&device_, nullptr, 0U);
+    const int status = vl53l9_get_frame(&device_, nullptr, 0U);
+    if (status == VL53L9_ERROR_NONE)
+    {
+        clearFrameInterruptLatch();
+    }
+    return status;
 }
 
 vl53l9_arduino_device_t *VL53L9CX::device()
@@ -567,6 +685,161 @@ bool VL53L9CX::printRawFrameSummary(Print &out,
     out.println(summary.temperature_raw);
 
     return printRawDepthGrid(out, buffer, binning);
+}
+
+VL53L9CXRawFrame::VL53L9CXRawFrame() : buffer_(nullptr), size_(0U), binning_(0U)
+{
+}
+
+VL53L9CXRawFrame::VL53L9CXRawFrame(const uint8_t *buffer, uint16_t size, uint8_t binning)
+    : buffer_(buffer), size_(size), binning_(binning)
+{
+}
+
+void VL53L9CXRawFrame::reset(const uint8_t *buffer, uint16_t size, uint8_t binning)
+{
+    buffer_ = buffer;
+    size_ = size;
+    binning_ = binning;
+}
+
+bool VL53L9CXRawFrame::valid() const
+{
+    const uint16_t expected_size = VL53L9CX::rawBufferSizeForBinning(binning_);
+    return (buffer_ != nullptr) && (expected_size != 0U) && (size_ >= expected_size);
+}
+
+const uint8_t *VL53L9CXRawFrame::data() const
+{
+    return buffer_;
+}
+
+uint16_t VL53L9CXRawFrame::size() const
+{
+    return size_;
+}
+
+uint8_t VL53L9CXRawFrame::binning() const
+{
+    return binning_;
+}
+
+uint16_t VL53L9CXRawFrame::rawResolution() const
+{
+    return VL53L9CX::rawResolutionForBinning(binning_);
+}
+
+uint8_t VL53L9CXRawFrame::rawWidth() const
+{
+    return VL53L9CX::rawWidthForBinning(binning_);
+}
+
+uint8_t VL53L9CXRawFrame::rawHeight() const
+{
+    return VL53L9CX::rawHeightForBinning(binning_);
+}
+
+uint8_t VL53L9CXRawFrame::outputWidth() const
+{
+    return VL53L9CX::outputWidthForBinning(binning_);
+}
+
+uint8_t VL53L9CXRawFrame::outputHeight() const
+{
+    return VL53L9CX::outputHeightForBinning(binning_);
+}
+
+uint16_t VL53L9CXRawFrame::rawDepthAt(uint16_t raw_index) const
+{
+    if (!valid() || (raw_index >= rawResolution()))
+    {
+        return 0U;
+    }
+    return VL53L9CX::readLe16(&buffer_[raw_index * 2U]) & 0x7fffU;
+}
+
+uint16_t VL53L9CXRawFrame::depthAt(uint8_t x, uint8_t y) const
+{
+    if (!valid())
+    {
+        return 0U;
+    }
+    return VL53L9CX::depthAtOutputPixel(buffer_, binning_, x, y);
+}
+
+uint16_t VL53L9CXRawFrame::amplitudeAt(uint8_t x, uint8_t y) const
+{
+    const uint16_t raw_index = rawIndexForOutputPixel(x, y);
+    if (!valid() || (raw_index >= rawResolution()))
+    {
+        return 0U;
+    }
+
+    const uint32_t amplitude_offset = static_cast<uint32_t>(rawResolution()) * 2U;
+    return VL53L9CX::readLe16(&buffer_[amplitude_offset + (static_cast<uint32_t>(raw_index) * 2U)]);
+}
+
+uint16_t VL53L9CXRawFrame::ambientAt(uint8_t x, uint8_t y) const
+{
+    const uint16_t raw_index = rawIndexForOutputPixel(x, y);
+    if (!valid() || (raw_index >= rawResolution()))
+    {
+        return 0U;
+    }
+
+    const uint32_t ambient_offset = static_cast<uint32_t>(rawResolution()) * 4U;
+    return VL53L9CX::readLe16(&buffer_[ambient_offset + (static_cast<uint32_t>(raw_index) * 2U)]);
+}
+
+uint32_t VL53L9CXRawFrame::frameCounter() const
+{
+    if (!valid())
+    {
+        return 0U;
+    }
+    return VL53L9CX::readLe32(&buffer_[size_ - VL53L9_STATUS_SIZE]);
+}
+
+uint16_t VL53L9CXRawFrame::temperatureRaw() const
+{
+    if (!valid())
+    {
+        return 0U;
+    }
+    return VL53L9CX::readLe16(&buffer_[size_ - VL53L9_STATUS_SIZE + 4U]);
+}
+
+bool VL53L9CXRawFrame::summary(VL53L9CXRawFrameSummary *summary) const
+{
+    return VL53L9CX::summarizeRawFrame(buffer_, size_, binning_, summary);
+}
+
+bool VL53L9CXRawFrame::printSummary(Print &out, uint16_t frame_index) const
+{
+    return VL53L9CX::printRawFrameSummary(out, buffer_, size_, frame_index, binning_);
+}
+
+bool VL53L9CXRawFrame::printDepthGrid(Print &out, uint16_t max_output_pixels) const
+{
+    if (!valid())
+    {
+        return false;
+    }
+    return VL53L9CX::printRawDepthGrid(out, buffer_, binning_, max_output_pixels);
+}
+
+uint16_t VL53L9CXRawFrame::rawIndexForOutputPixel(uint8_t x, uint8_t y) const
+{
+    const uint8_t raw_width = VL53L9CX::rawWidthForBinning(binning_);
+    const uint8_t output_width = VL53L9CX::outputWidthForBinning(binning_);
+    const uint8_t output_height = VL53L9CX::outputHeightForBinning(binning_);
+    const uint8_t output_y_offset = VL53L9CX::outputYOffsetForBinning(binning_);
+
+    if ((raw_width == 0U) || (x >= output_width) || (y >= output_height))
+    {
+        return 0xffffU;
+    }
+    return static_cast<uint16_t>(y + output_y_offset) * raw_width + x;
 }
 
 bool VL53L9CX::interruptIsActive(VL53L9CXFrameWaitMode mode, int *level) const

@@ -105,6 +105,10 @@
 #define VL53L9_RANGING_FRAME_WAIT_MODE VL53L9CX_FRAME_WAIT_POLL
 #endif
 
+#ifndef VL53L9_RANGING_ATTACH_HOST_INTR
+#define VL53L9_RANGING_ATTACH_HOST_INTR 1
+#endif
+
 #ifndef VL53L9_RANGING_SYNC_MODE
 #define VL53L9_RANGING_SYNC_MODE VL53L9_SYNC_AUTONOMOUS
 #endif
@@ -156,6 +160,7 @@ constexpr vl53l9_sync_mode_t kRangingSyncMode = VL53L9_RANGING_SYNC_MODE;
 constexpr vl53l9_power_mode_t kRangingPowerMode = VL53L9_RANGING_POWER_MODE;
 constexpr vl53l9_context_t kRangingContext = VL53L9_RANGING_CONTEXT;
 constexpr VL53L9CXFrameWaitMode kRangingFrameWaitMode = VL53L9_RANGING_FRAME_WAIT_MODE;
+constexpr bool kRangingAttachHostIntr = VL53L9_RANGING_ATTACH_HOST_INTR != 0;
 
 constexpr uint16_t kRangingRawBufferCapacity = VL53L9CX::rawBufferSizeForBinning(kRangingBinning);
 
@@ -543,6 +548,10 @@ bool configureRanging(VL53L9CX *sensor, uint16_t *rawBufferSize)
   Serial.print("/");
   Serial.print(kRangingFramePollIntervalMs);
   Serial.print(" ms");
+  if (kRangingFrameWaitMode != VL53L9CX_FRAME_WAIT_POLL) {
+    Serial.print(", irq latch ");
+    Serial.print(kRangingAttachHostIntr ? "enabled" : "disabled");
+  }
   Serial.println();
 
   status = sensor->setSyncMode(kRangingSyncMode);
@@ -592,6 +601,10 @@ bool waitForRangingFrame(VL53L9CX *sensor, uint16_t frameIndex)
     if (kRangingFrameWaitMode != VL53L9CX_FRAME_WAIT_POLL) {
       Serial.print(", gpio_active_seen=");
       Serial.print(waitResult.interrupt_observed_active ? "yes" : "no");
+      Serial.print(", latched=");
+      Serial.print(waitResult.interrupt_latched ? "yes" : "no");
+      Serial.print(", irq_count=");
+      Serial.print(waitResult.interrupt_count);
       Serial.print(", last_gpio=");
       Serial.print(waitResult.interrupt_level);
     }
@@ -632,6 +645,17 @@ bool runStRangingSample(VL53L9CX *sensor)
     return true;
   }
 
+  if (kRangingFrameWaitMode != VL53L9CX_FRAME_WAIT_POLL) {
+    Serial.print("HOST_INTR interrupt latch ");
+    if (!kRangingAttachHostIntr) {
+      Serial.println("disabled by build flag");
+    } else if (sensor->attachFrameInterrupt(kRangingFrameWaitMode)) {
+      Serial.println("attached");
+    } else {
+      Serial.println("not attached; falling back to GPIO sampling and polling");
+    }
+  }
+
   int status = sensor->start();
   if (!printVl53Status("vl53l9_start", status)) {
     return false;
@@ -658,7 +682,8 @@ bool runStRangingSample(VL53L9CX *sensor)
       break;
     }
 
-    VL53L9CX::printRawFrameSummary(Serial, gFrameBuffer, rawBufferSize, frameIndex, kRangingBinning);
+    VL53L9CXRawFrame frame(gFrameBuffer, rawBufferSize, kRangingBinning);
+    frame.printSummary(Serial, frameIndex);
   }
 
   status = sensor->stop();

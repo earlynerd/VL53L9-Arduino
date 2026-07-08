@@ -30,6 +30,8 @@ struct VL53L9CXFrameWaitResult
     uint16_t polls = 0U;
     int interrupt_level = -1;
     bool interrupt_observed_active = false;
+    bool interrupt_latched = false;
+    uint32_t interrupt_count = 0U;
 };
 
 struct VL53L9CXRawFrameSummary
@@ -48,6 +50,8 @@ struct VL53L9CXRawFrameSummary
     uint16_t temperature_raw = 0U;
 };
 
+class VL53L9CXRawFrame;
+
 class VL53L9CX
 {
 public:
@@ -56,6 +60,12 @@ public:
     void setAddress(uint8_t dynamic_address);
     void setPowerConfig(vl53l9_vdda_t vdda, vl53l9_vddio_t vddio, uint32_t ext_clock_hz);
     void setInterruptPin(int8_t interrupt_pin);
+    bool attachFrameInterrupt(VL53L9CXFrameWaitMode mode);
+    void detachFrameInterrupt();
+    void clearFrameInterruptLatch();
+    bool frameInterruptAttached() const;
+    bool frameInterruptLatched() const;
+    uint32_t frameInterruptCount() const;
 
     int init();
     int getDeviceId(uint32_t *device_id);
@@ -214,6 +224,44 @@ private:
 
     vl53l9_arduino_device_t device_;
     int8_t interrupt_pin_;
+    bool interrupt_attached_;
+    VL53L9CXFrameWaitMode interrupt_wait_mode_;
+};
+
+class VL53L9CXRawFrame
+{
+public:
+    VL53L9CXRawFrame();
+    VL53L9CXRawFrame(const uint8_t *buffer, uint16_t size, uint8_t binning);
+
+    void reset(const uint8_t *buffer, uint16_t size, uint8_t binning);
+    bool valid() const;
+
+    const uint8_t *data() const;
+    uint16_t size() const;
+    uint8_t binning() const;
+    uint16_t rawResolution() const;
+    uint8_t rawWidth() const;
+    uint8_t rawHeight() const;
+    uint8_t outputWidth() const;
+    uint8_t outputHeight() const;
+
+    uint16_t rawDepthAt(uint16_t raw_index) const;
+    uint16_t depthAt(uint8_t x, uint8_t y) const;
+    uint16_t amplitudeAt(uint8_t x, uint8_t y) const;
+    uint16_t ambientAt(uint8_t x, uint8_t y) const;
+    uint32_t frameCounter() const;
+    uint16_t temperatureRaw() const;
+    bool summary(VL53L9CXRawFrameSummary *summary) const;
+    bool printSummary(Print &out, uint16_t frame_index) const;
+    bool printDepthGrid(Print &out, uint16_t max_output_pixels = 64U) const;
+
+private:
+    uint16_t rawIndexForOutputPixel(uint8_t x, uint8_t y) const;
+
+    const uint8_t *buffer_;
+    uint16_t size_;
+    uint8_t binning_;
 };
 
 #endif // VL53L9CX_ARDUINO_H

@@ -38,6 +38,7 @@ cfg.frame_period_us = 250000;
 cfg.exposure_ms = 5;
 
 sensor.configureRanging(cfg);
+sensor.attachFrameInterrupt(VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH);
 sensor.start();
 
 uint16_t raw_size = 0;
@@ -45,7 +46,11 @@ sensor.getRawBufferSize(cfg.binning, &raw_size);
 
 uint8_t frame[VL53L9CX::rawBufferSizeForBinning(12)];
 VL53L9CXFrameWaitResult wait;
-status = sensor.readFrameAfterWait(frame, raw_size, 2000, &wait);
+status = sensor.readFrameAfterWait(frame,
+                                   raw_size,
+                                   2000,
+                                   &wait,
+                                   VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH);
 
 sensor.stop();
 ```
@@ -53,12 +58,17 @@ sensor.stop();
 Raw-frame helpers are also available:
 
 ```cpp
+VL53L9CXRawFrame raw_frame(frame, raw_size, cfg.binning);
+
 VL53L9CXRawFrameSummary summary;
-if (VL53L9CX::summarizeRawFrame(frame, raw_size, cfg.binning, &summary)) {
+if (raw_frame.summary(&summary)) {
   Serial.println(summary.center_depth);
+  Serial.println(raw_frame.depthAt(4, 3));
+  Serial.println(raw_frame.amplitudeAt(4, 3));
+  Serial.println(raw_frame.ambientAt(4, 3));
 }
 
-VL53L9CX::printRawFrameSummary(Serial, frame, raw_size, 1, cfg.binning);
+raw_frame.printSummary(Serial, 1);
 ```
 
 ## Frame Handling
@@ -76,7 +86,12 @@ Supported wait modes:
   an active-low hint, then confirm with `vl53l9_poll_frame()`.
 - `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH`: same, but active-high.
 
-The current X-NUCLEO-53L9A1 + Metro RP2350 smoke test still defaults to register
-polling. GPIO active-high has also been observed working on that hardware. GPIO
-modes remain hints; every frame read is still gated by the ST frame-ready
-register.
+The current X-NUCLEO-53L9A1 + Metro RP2350 smoke test defaults to GPIO
+active-high with periodic register-poll fallback. GPIO modes remain hints; every
+frame read is still gated by the ST frame-ready register.
+
+When `attachFrameInterrupt()` is used with a GPIO wait mode, the wrapper attaches
+a small edge ISR and latches that an interrupt happened. `waitForFrame()` reports
+both the sampled GPIO level and the latched interrupt state through
+`VL53L9CXFrameWaitResult`. The current implementation has one global ISR latch,
+so it is intended for one VL53L9CX instance.

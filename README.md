@@ -155,7 +155,7 @@ The wrapper owns the ST device handle after I3C dynamic address assignment and
 provides methods for `init()`, ranging configuration, `start()`,
 `waitForFrame()`, `readFrame()`, `ackFrame()`, and `stop()`. It also exposes
 raw frame geometry and parsing helpers such as `rawBufferSizeForBinning()`,
-`summarizeRawFrame()`, and `printRawFrameSummary()`.
+`VL53L9CXRawFrame`, `summarizeRawFrame()`, and `printRawFrameSummary()`.
 
 This is still a local project library rather than a standalone Arduino Library
 Manager package. It depends on the generated/staged ST headers from
@@ -192,7 +192,8 @@ Board wiring and conservative bring-up settings are controlled from
 -DVL53L9_RANGING_SAMPLE_COUNT=3
 -DVL53L9_RANGING_FRAME_TIMEOUT_MS=2000
 -DVL53L9_RANGING_FRAME_POLL_INTERVAL_MS=5
--DVL53L9_RANGING_FRAME_WAIT_MODE=VL53L9CX_FRAME_WAIT_POLL
+-DVL53L9_RANGING_FRAME_WAIT_MODE=VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH
+-DVL53L9_RANGING_ATTACH_HOST_INTR=1
 ```
 
 The hardware-validated setting for the X-NUCLEO-53L9A1 + Metro RP2350 keeps
@@ -214,8 +215,8 @@ Host-board parameters:
 - `VL53L9_HOST_XSHUT_PIN`: GPIO connected to the sensor reset/shutdown pin.
   The sketch drives it low, then high, before I3C discovery.
 - `VL53L9_HOST_INTR_PIN`: GPIO connected to the sensor interrupt output. The
-  current smoke test polls the driver and prints this pin state for correlation;
-  it does not yet block on the interrupt.
+  current smoke test can poll the driver only, or use this pin as a frame-ready
+  hint and confirm readiness through the ST register before reading.
 - `VL53L9_HOST_CLKIN_PIN`, `VL53L9_HOST_CLKIN_ENABLE`,
   `VL53L9_HOST_CLKIN_HZ`: optional host clock output. The X-NUCLEO setup uses
   a 12 MHz PWM clock on GPIO11, matching the ST reference configuration.
@@ -272,12 +273,16 @@ Ranging-profile parameters:
   frame-ready indication.
 - `VL53L9_RANGING_FRAME_POLL_INTERVAL_MS`: delay between frame-ready register
   polls in the wrapper's wait loop.
-- `VL53L9_RANGING_FRAME_WAIT_MODE`: frame wait strategy. The known-good default
-  is `VL53L9CX_FRAME_WAIT_POLL`, which uses ST's frame-ready register.
-  `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_LOW` and
-  `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH` use `HOST_INTR` as a hint, but still
-  confirm readiness with the ST register before reading the frame. GPIO
-  active-high has also been observed working on the current hardware.
+- `VL53L9_RANGING_FRAME_WAIT_MODE`: frame wait strategy. The current
+  hardware-validated default is `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH`, which
+  uses `HOST_INTR` as a hint and still confirms readiness with the ST register
+  before reading the frame. `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_LOW` is available
+  if the interrupt polarity changes, and `VL53L9CX_FRAME_WAIT_POLL` ignores the
+  pin and uses only ST's frame-ready register.
+- `VL53L9_RANGING_ATTACH_HOST_INTR`: when set to `1`, GPIO wait modes attach a
+  small `HOST_INTR` edge ISR and use its latch as a frame-ready hint. Poll mode
+  ignores this flag. The ST frame-ready register is still checked before each
+  frame read.
 
 Binning deserves special attention. In the ST driver, accepted working binning
 values are currently `2`, `4`, `6`, `8`, `12`, and `24`. The header mentions
@@ -350,7 +355,7 @@ vl53l9_init: 0 (OK)
 vl53l9_get_device_id: 0 (OK), device ID ...
 Ranging config: sync autonomous, power regular, context short, binning 12, ...
 vl53l9_start: 0 (OK)
-Frame 1 ready after ..., polls=...
+Frame 1 ready after ..., polls=..., gpio_active_seen=..., latched=..., irq_count=...
 vl53l9_get_frame: 0 (OK)
 Frame 1: sensor counter ...
 Depth summary: ...
