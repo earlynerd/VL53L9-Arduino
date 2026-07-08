@@ -14,6 +14,7 @@ PlatformIO environment copies the required files from the local, git-ignored
 - Implementations of ST's required `vl53l9_platform.h` callbacks.
 - Register reads and writes backed by the PIO I3C transport in `lib/i3c`.
 - Chunked private SDR writes for the firmware patch upload path.
+- Chunked private SDR reads for raw frame acquisition.
 - Synchronous fallback behavior for `vl53l9_read_async()`.
 
 ## Current Assumptions
@@ -38,6 +39,9 @@ Use the opt-in ST driver environment after the transport test works:
 ```sh
 pio run -e rp2350_st_driver
 ```
+
+The sketch uses this environment to run `vl53l9_init()` and then a short
+raw-frame ranging smoke test through ST's public driver APIs.
 
 That environment requires:
 
