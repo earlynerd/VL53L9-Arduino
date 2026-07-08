@@ -180,7 +180,7 @@ Board wiring and conservative bring-up settings are controlled from
 -DVL53L9_I3C_PIO_INDEX=0
 -DVL53L9_I3C_SM=1
 -DVL53L9_I3C_DRIVE_STRENGTH_MA=12
--DVL53L9_I3C_CLK_KHZ=1000
+-DVL53L9_I3C_CLK_KHZ=2000
 -DVL53L9_I3C_DISABLE_INTERRUPTS=0
 -DVL53L9_I3C_DYNAMIC_ADDRESS=0x52
 -DVL53L9_RANGING_SYNC_MODE=VL53L9_SYNC_AUTONOMOUS
@@ -198,9 +198,11 @@ Board wiring and conservative bring-up settings are controlled from
 
 The hardware-validated setting for the X-NUCLEO-53L9A1 + Metro RP2350 keeps
 interrupt locking disabled. With interrupt locking enabled, ST driver init has
-been observed to fail on this setup. The default I3C clock remains 1 MHz for
-margin; hardware testing has been stable at speeds up to 2 MHz, while higher
-rates still need transport work or signal-integrity investigation.
+been observed to fail on this setup. The default I3C clock is 2 MHz, the lower
+edge of the currently observed working range for init plus raw-frame reads.
+Hardware testing has worked from 2.0 MHz to 3.2 MHz. At 1 MHz, initialization
+can pass but frame data reads have failed. At 4 MHz and above, dynamic-address
+assignment has failed during RSTDAA/ENTDAA with `ERR_NAKED_DURING_ARBHDR`.
 
 The first ranging test defaults to binning 12, which keeps each raw frame small
 while still exercising ST's `vl53l9_start()`, `vl53l9_poll_frame()`,
@@ -232,10 +234,11 @@ I3C transport parameters:
   used by the I3C controller.
 - `VL53L9_I3C_DRIVE_STRENGTH_MA`: GPIO drive strength. The default is 12 mA for
   sharper I3C edges through the X-NUCLEO level shifter.
-- `VL53L9_I3C_CLK_KHZ`: I3C SDR clock in kHz. The default 1 MHz is intentionally
-  conservative. On the current X-NUCLEO-53L9A1 + Metro RP2350 hardware, ST init
-  and raw frame reads have been observed working at up to 2 MHz. Faster rates
-  are not yet reliable.
+- `VL53L9_I3C_CLK_KHZ`: I3C SDR clock in kHz. The default is 2 MHz. On the
+  current X-NUCLEO-53L9A1 + Metro RP2350 hardware, ST init and raw frame reads
+  have been observed working from 2.0 MHz to 3.2 MHz. 1 MHz can initialize but
+  has failed during frame reads; 4 MHz and above has failed during
+  RSTDAA/ENTDAA.
 - `VL53L9_I3C_DISABLE_INTERRUPTS`: wraps low-level PIO transfers in interrupt
   locking when set to `1`. The hardware-validated default is `0`. On this setup,
   `1` prevents the ST driver init/ranging path from completing reliably.
@@ -343,7 +346,8 @@ If ENTDAA fails, first checks are:
   by the ST example.
 - Confirm GPIO11 is producing a 12 MHz clock.
 - Confirm SDA/SCL are GPIO20/GPIO21 and both idle high.
-- Keep I3C at 1 MHz until the dynamic address assignment is stable.
+- Keep I3C at 2 MHz until the dynamic address assignment and raw-frame reads are
+  stable. On this hardware, 4 MHz and above has failed during RSTDAA/ENTDAA.
 
 ## ST Driver And Ranging Test
 

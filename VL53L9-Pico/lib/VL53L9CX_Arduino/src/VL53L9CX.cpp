@@ -162,6 +162,7 @@ int VL53L9CX::init()
 
 int VL53L9CX::getDeviceId(uint32_t *device_id)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_get_device_id(&device_, device_id);
 }
 
@@ -207,42 +208,50 @@ int VL53L9CX::configureRanging(const VL53L9CXRangingConfig &config)
 
 int VL53L9CX::setSyncMode(vl53l9_sync_mode_t mode)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_sync_mode(&device_, mode);
 }
 
 int VL53L9CX::setPowerMode(vl53l9_power_mode_t mode)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_power_mode(&device_, mode);
 }
 
 int VL53L9CX::setFramePeriod(uint32_t frame_period_us)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_frame_period(&device_, frame_period_us);
 }
 
 int VL53L9CX::setContext(vl53l9_context_t context)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_context(&device_, context);
 }
 
 int VL53L9CX::setBinning(vl53l9_context_t context, uint8_t binning)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_binning(&device_, context, binning);
 }
 
 int VL53L9CX::setExposure(vl53l9_context_t context, uint16_t exposure_ms)
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_set_exposure(&device_, context, exposure_ms);
 }
 
 int VL53L9CX::start()
 {
     clearFrameInterruptLatch();
+    vl53l9_arduino_clear_last_error();
     return vl53l9_start(&device_);
 }
 
 int VL53L9CX::stop()
 {
+    vl53l9_arduino_clear_last_error();
     const int status = vl53l9_stop(&device_);
     if (status == VL53L9_ERROR_NONE)
     {
@@ -253,6 +262,7 @@ int VL53L9CX::stop()
 
 int VL53L9CX::triggerFrame()
 {
+    vl53l9_arduino_clear_last_error();
     return vl53l9_trigger_frame(&device_);
 }
 
@@ -261,6 +271,7 @@ int VL53L9CX::pollFrame(bool *ready)
     uint8_t ready_u8 = 0U;
     int status;
 
+    vl53l9_arduino_clear_last_error();
     if (ready == nullptr)
     {
         return VL53L9_ERROR_INVALID_PARAM;
@@ -348,6 +359,7 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
 
 int VL53L9CX::readFrame(uint8_t *buffer, uint16_t size)
 {
+    vl53l9_arduino_clear_last_error();
     const int status = vl53l9_get_frame(&device_, buffer, size);
     if (status == VL53L9_ERROR_NONE)
     {
@@ -373,6 +385,7 @@ int VL53L9CX::readFrameAfterWait(uint8_t *buffer,
 
 int VL53L9CX::ackFrame()
 {
+    vl53l9_arduino_clear_last_error();
     const int status = vl53l9_get_frame(&device_, nullptr, 0U);
     if (status == VL53L9_ERROR_NONE)
     {

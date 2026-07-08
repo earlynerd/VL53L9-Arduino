@@ -66,7 +66,7 @@
 #endif
 
 #ifndef VL53L9_I3C_CLK_KHZ
-#define VL53L9_I3C_CLK_KHZ 1000
+#define VL53L9_I3C_CLK_KHZ 2000
 #endif
 
 #ifndef VL53L9_I3C_DISABLE_INTERRUPTS
@@ -211,13 +211,15 @@ bool printVl53Status(const char *label, int status)
   Serial.print(" (");
   Serial.print(VL53L9CX::errorName(status));
   Serial.println(')');
+  if (status != VL53L9_ERROR_NONE) {
+    const vl53l9_arduino_platform_error_t *error = gSensor.lastPlatformError();
+    if ((error != nullptr) && (error->valid != 0U)) {
+      VL53L9CX::printPlatformError(Serial, error);
+    }
+  }
   return status == VL53L9_ERROR_NONE;
 }
 
-void printVl53PlatformError()
-{
-  VL53L9CX::printPlatformError(Serial, gSensor.lastPlatformError());
-}
 #endif
 
 bool startHostClock()
@@ -703,7 +705,6 @@ bool runStDriverInit()
   Serial.println("Starting ST vl53l9_init()");
   const int initStatus = gSensor.init();
   if (!printVl53Status("vl53l9_init", initStatus)) {
-    printVl53PlatformError();
     return false;
   }
 

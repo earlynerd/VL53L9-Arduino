@@ -90,6 +90,10 @@ The current X-NUCLEO-53L9A1 + Metro RP2350 smoke test defaults to GPIO
 active-high with periodic register-poll fallback. GPIO modes remain hints; every
 frame read is still gated by the ST frame-ready register.
 
+On the current hardware, 2.0 MHz to 3.2 MHz I3C has been observed working for
+init and raw-frame reads. 1 MHz can initialize but has failed during frame
+reads, while 4 MHz and above has failed during dynamic-address assignment.
+
 When `attachFrameInterrupt()` is used with a GPIO wait mode, the wrapper attaches
 a small edge ISR and latches that an interrupt happened. `waitForFrame()` reports
 both the sampled GPIO level and the latched interrupt state through
