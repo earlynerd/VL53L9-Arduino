@@ -106,9 +106,13 @@ HOST SCL    -> GPIO21
 ```
 
 The validation sketch starts the 12 MHz host clock, holds/releases XSHUT,
-initializes the PIO I3C transport at 2 MHz by default, runs RSTDAA and ENTDAA
-with dynamic address `0x52`, checks that the address ACKs, then attempts private
-SDR reads of the model, ROM revision, patch revision, and FSM registers.
+initializes the PIO I3C transport at the DAA clock, runs RSTDAA and ENTDAA with
+dynamic address `0x52`, optionally switches to the runtime SDR clock, checks
+that the address ACKs, then attempts private SDR reads of the model, ROM
+revision, patch revision, and FSM registers. The default DAA and runtime clocks
+are both 2 MHz; set `VL53L9_I3C_CLK_KHZ` higher while keeping
+`VL53L9_I3C_DAA_CLK_KHZ=2000` to test whether high-speed private transfers work
+after conservative dynamic address assignment.
 
 The optional `rp2350_st_driver` environment continues into ST's init path. On
 hardware it has completed `vl53l9_init()`, firmware patch boot, ranging

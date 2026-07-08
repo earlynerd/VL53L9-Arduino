@@ -69,6 +69,10 @@
 #define VL53L9_I3C_CLK_KHZ 2000
 #endif
 
+#ifndef VL53L9_I3C_DAA_CLK_KHZ
+#define VL53L9_I3C_DAA_CLK_KHZ VL53L9_I3C_CLK_KHZ
+#endif
+
 #ifndef VL53L9_I3C_DISABLE_INTERRUPTS
 #define VL53L9_I3C_DISABLE_INTERRUPTS 0
 #endif
@@ -135,6 +139,7 @@ constexpr uint8_t kI3cSclPin = VL53L9_I3C_SCL_PIN;
 constexpr uint8_t kI3cPioIndex = VL53L9_I3C_PIO_INDEX;
 constexpr uint8_t kI3cStateMachine = VL53L9_I3C_SM;
 constexpr uint8_t kI3cDriveStrengthMa = VL53L9_I3C_DRIVE_STRENGTH_MA;
+constexpr uint32_t kI3cDaaClockKhz = VL53L9_I3C_DAA_CLK_KHZ;
 constexpr uint32_t kI3cClockKhz = VL53L9_I3C_CLK_KHZ;
 constexpr bool kI3cDisableInterrupts = VL53L9_I3C_DISABLE_INTERRUPTS != 0;
 constexpr uint8_t kI3cDynamicAddress = VL53L9_I3C_DYNAMIC_ADDRESS;
@@ -233,6 +238,21 @@ bool printHwConfigReadback(VL53L9CX *sensor, const char *label)
 
 #endif
 
+bool setI3cClock(uint32_t clockKhz, const char *label)
+{
+  const i3c_hl_status_t status = i3c_hl_set_clkrate(clockKhz);
+  if (status != i3c_hl_status_ok) {
+    printI3cStatus(label, status);
+    return false;
+  }
+
+  Serial.print(label);
+  Serial.print(": ");
+  Serial.print(clockKhz);
+  Serial.println(" kHz");
+  return true;
+}
+
 bool startHostClock()
 {
   if (!kHostClkInEnable) {
@@ -315,9 +335,7 @@ bool initI3cTransport()
     return false;
   }
 
-  status = i3c_hl_set_clkrate(kI3cClockKhz);
-  if (status != i3c_hl_status_ok) {
-    printI3cStatus("I3C clock setup failed", status);
+  if (!setI3cClock(kI3cDaaClockKhz, "I3C DAA clock")) {
     return false;
   }
 
@@ -329,7 +347,9 @@ bool initI3cTransport()
   Serial.print(kI3cPioIndex);
   Serial.print("/SM");
   Serial.print(kI3cStateMachine);
-  Serial.print(", ");
+  Serial.print(", DAA ");
+  Serial.print(kI3cDaaClockKhz);
+  Serial.print(" kHz, run ");
   Serial.print(kI3cClockKhz);
   Serial.print(" kHz, interrupt locking ");
   Serial.println(kI3cDisableInterrupts ? "enabled" : "disabled");
@@ -757,6 +777,11 @@ void runHardwareBringup()
   if (!assignDynamicAddress(pid)) {
     Serial.println("Stopping before register reads; ENTDAA did not complete");
     return;
+  }
+  if (kI3cClockKhz != kI3cDaaClockKhz) {
+    if (!setI3cClock(kI3cClockKhz, "I3C run clock")) {
+      return;
+    }
   }
   if (!checkDynamicAddress()) {
     Serial.println("Stopping before register reads; dynamic address did not ACK");

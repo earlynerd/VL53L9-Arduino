@@ -180,6 +180,7 @@ Board wiring and conservative bring-up settings are controlled from
 -DVL53L9_I3C_PIO_INDEX=0
 -DVL53L9_I3C_SM=1
 -DVL53L9_I3C_DRIVE_STRENGTH_MA=12
+-DVL53L9_I3C_DAA_CLK_KHZ=2000
 -DVL53L9_I3C_CLK_KHZ=2000
 -DVL53L9_I3C_DISABLE_INTERRUPTS=0
 -DVL53L9_I3C_DYNAMIC_ADDRESS=0x52
@@ -234,11 +235,16 @@ I3C transport parameters:
   used by the I3C controller.
 - `VL53L9_I3C_DRIVE_STRENGTH_MA`: GPIO drive strength. The default is 12 mA for
   sharper I3C edges through the X-NUCLEO level shifter.
-- `VL53L9_I3C_CLK_KHZ`: I3C SDR clock in kHz. The default is 2 MHz. On the
-  current X-NUCLEO-53L9A1 + Metro RP2350 hardware, ST init and raw frame reads
-  have been observed working from 2.0 MHz to 3.2 MHz. 1 MHz can initialize but
-  has failed during frame reads; 4 MHz and above has failed during
-  RSTDAA/ENTDAA.
+- `VL53L9_I3C_DAA_CLK_KHZ`: I3C clock used for RSTDAA/ENTDAA and dynamic
+  address assignment. Keeping this at 2 MHz lets higher runtime SDR clocks be
+  tested without making dynamic-address assignment the first failure point.
+- `VL53L9_I3C_CLK_KHZ`: runtime I3C SDR clock in kHz, applied after ENTDAA and
+  before the dynamic-address ACK/register-read validation. The default is 2
+  MHz. On the current X-NUCLEO-53L9A1 + Metro RP2350 hardware, ST init and raw
+  frame reads have been observed working from 1.0 MHz to 3.2 MHz when DAA also
+  succeeds. Earlier testing with one global clock failed during RSTDAA/ENTDAA at
+  4 MHz and above; split DAA/runtime clocks can isolate that open-drain
+  bring-up phase from private SDR transfer speed.
 - `VL53L9_I3C_DISABLE_INTERRUPTS`: wraps low-level PIO transfers in interrupt
   locking when set to `1`. The hardware-validated default is `0`. On this setup,
   `1` prevents the ST driver init/ranging path from completing reliably.
@@ -346,8 +352,8 @@ If ENTDAA fails, first checks are:
   by the ST example.
 - Confirm GPIO11 is producing a 12 MHz clock.
 - Confirm SDA/SCL are GPIO20/GPIO21 and both idle high.
-- Keep I3C at 2 MHz until the dynamic address assignment and raw-frame reads are
-  stable. On this hardware, 4 MHz and above has failed during RSTDAA/ENTDAA.
+- Keep `VL53L9_I3C_DAA_CLK_KHZ` at 2 MHz until dynamic address assignment is
+  stable. Higher `VL53L9_I3C_CLK_KHZ` values can then be tested after ENTDAA.
 
 ## ST Driver And Ranging Test
 

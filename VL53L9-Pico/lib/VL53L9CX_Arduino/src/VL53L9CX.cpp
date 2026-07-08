@@ -311,6 +311,8 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
 
     const uint32_t start_ms = millis();
     uint32_t last_poll_ms = start_ms - static_cast<uint32_t>(poll_interval_ms);
+    const uint32_t start_interrupt_count = frameInterruptCount();
+    local_result.interrupt_count = start_interrupt_count;
 
     while ((millis() - start_ms) < timeout_ms)
     {
@@ -319,11 +321,13 @@ int VL53L9CX::waitForFrame(uint32_t timeout_ms,
         const bool gpio_active = interruptIsActive(mode, &interrupt_level);
         const bool latch_active = (mode != VL53L9CX_FRAME_WAIT_POLL) && frameInterruptLatched();
         const bool poll_due = (now - last_poll_ms) >= poll_interval_ms;
+        const uint32_t interrupt_count = frameInterruptCount();
 
         local_result.interrupt_level = interrupt_level;
         local_result.interrupt_observed_active = local_result.interrupt_observed_active || gpio_active;
-        local_result.interrupt_latched = local_result.interrupt_latched || latch_active;
-        local_result.interrupt_count = frameInterruptCount();
+        local_result.interrupt_latched =
+            local_result.interrupt_latched || latch_active || (interrupt_count != start_interrupt_count);
+        local_result.interrupt_count = interrupt_count;
 
         if (latch_active || gpio_active || poll_due)
         {
