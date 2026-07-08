@@ -154,7 +154,8 @@ It is importable from sketches with:
 The wrapper owns the ST device handle after I3C dynamic address assignment and
 provides methods for `init()`, ranging configuration, `start()`,
 `waitForFrame()`, `readFrame()`, `ackFrame()`, and `stop()`. It also exposes
-raw frame geometry helpers such as `rawBufferSizeForBinning()`.
+raw frame geometry and parsing helpers such as `rawBufferSizeForBinning()`,
+`summarizeRawFrame()`, and `printRawFrameSummary()`.
 
 This is still a local project library rather than a standalone Arduino Library
 Manager package. It depends on the generated/staged ST headers from
@@ -275,7 +276,8 @@ Ranging-profile parameters:
   is `VL53L9CX_FRAME_WAIT_POLL`, which uses ST's frame-ready register.
   `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_LOW` and
   `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH` use `HOST_INTR` as a hint, but still
-  confirm readiness with the ST register before reading the frame.
+  confirm readiness with the ST register before reading the frame. GPIO
+  active-high has also been observed working on the current hardware.
 
 Binning deserves special attention. In the ST driver, accepted working binning
 values are currently `2`, `4`, `6`, `8`, `12`, and `24`. The header mentions
@@ -433,6 +435,11 @@ transport can be validated in isolation. The `rp2350_st_driver` environment
 continues into ST's full `vl53l9_init()` path after the same transport checks.
 That path writes board configuration, uploads the firmware patch, boots the
 device, checks patch revision, and applies default settings.
+
+The I3C transport is already isolated as a local PlatformIO library under
+`VL53L9-Pico/lib/i3c`. It is a good candidate for a separate repository later,
+but keeping it in-tree is useful while the RP2350 timing behavior, IBI handling,
+and practical clock-rate limits are still changing with VL53L9 hardware tests.
 
 ## Licensing And Provenance
 

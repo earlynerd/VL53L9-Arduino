@@ -157,14 +157,9 @@ constexpr vl53l9_power_mode_t kRangingPowerMode = VL53L9_RANGING_POWER_MODE;
 constexpr vl53l9_context_t kRangingContext = VL53L9_RANGING_CONTEXT;
 constexpr VL53L9CXFrameWaitMode kRangingFrameWaitMode = VL53L9_RANGING_FRAME_WAIT_MODE;
 
-constexpr uint16_t kRangingRawResolution = VL53L9CX::rawResolutionForBinning(kRangingBinning);
-constexpr uint8_t kRangingRawWidth = VL53L9CX::rawWidthForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputWidth = VL53L9CX::outputWidthForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputHeight = VL53L9CX::outputHeightForBinning(kRangingBinning);
-constexpr uint8_t kRangingOutputYOffset = VL53L9CX::outputYOffsetForBinning(kRangingBinning);
 constexpr uint16_t kRangingRawBufferCapacity = VL53L9CX::rawBufferSizeForBinning(kRangingBinning);
 
-static_assert(kRangingRawResolution > 0, "Unsupported VL53L9_RANGING_BINNING");
+static_assert(VL53L9CX::rawResolutionForBinning(kRangingBinning) > 0, "Unsupported VL53L9_RANGING_BINNING");
 static_assert(kRangingRawBufferCapacity > VL53L9_STATUS_SIZE, "Invalid VL53L9 raw frame buffer size");
 
 VL53L9CX gSensor;
@@ -203,234 +198,20 @@ void printI3cStatus(const char *label, i3c_hl_status_t status)
 }
 
 #if VL53L9_ENABLE_ST_DRIVER
-const char *vl53l9ErrorName(int status)
-{
-  switch (status) {
-    case VL53L9_ERROR_NONE:
-      return "OK";
-    case VL53L9_ERROR_PLATFORM:
-      return "PLATFORM";
-    case VL53L9_ERROR_INVALID_PARAM:
-      return "INVALID_PARAM";
-    case VL53L9_ERROR_INVALID_STATE:
-      return "INVALID_STATE";
-    case VL53L9_ERROR_INVALID_OPERATION:
-      return "INVALID_OPERATION";
-    case VL53L9_ERROR_TIMEOUT:
-      return "TIMEOUT";
-    case VL53L9_ERROR_INTERNAL:
-      return "INTERNAL";
-    default:
-      return "UNKNOWN";
-  }
-}
-
 bool printVl53Status(const char *label, int status)
 {
   Serial.print(label);
   Serial.print(": ");
   Serial.print(status);
   Serial.print(" (");
-  Serial.print(vl53l9ErrorName(status));
+  Serial.print(VL53L9CX::errorName(status));
   Serial.println(')');
   return status == VL53L9_ERROR_NONE;
 }
 
 void printVl53PlatformError()
 {
-  const vl53l9_arduino_platform_error_t *error = vl53l9_arduino_get_last_error();
-  if ((error == nullptr) || (error->valid == 0U)) {
-    Serial.println("VL53L9 platform error detail: no I3C failure recorded");
-    return;
-  }
-
-  Serial.print("VL53L9 platform error detail: op=");
-  Serial.print(error->operation != nullptr ? error->operation : "unknown");
-  Serial.print(", addr=");
-  printHex8(error->i3c_address);
-  Serial.print(", reg=");
-  printHex16(error->register_address);
-  Serial.print(", requested=");
-  Serial.print(error->requested_size);
-  Serial.print(", actual=");
-  Serial.print(error->actual_size);
-  Serial.print(", chunk_offset=");
-  Serial.print(error->chunk_offset);
-  Serial.print(", ibi_retries=");
-  Serial.print(error->ibi_retries);
-  Serial.print(", i3c_status=");
-  Serial.print(error->i3c_status);
-  Serial.print(" (");
-  Serial.print(vl53l9_arduino_i3c_status_name(error->i3c_status));
-  Serial.println(')');
-}
-
-const char *syncModeName(vl53l9_sync_mode_t mode)
-{
-  switch (mode) {
-    case VL53L9_SYNC_SLAVE:
-      return "slave";
-    case VL53L9_SYNC_MANUAL:
-      return "manual";
-    case VL53L9_SYNC_AUTONOMOUS:
-      return "autonomous";
-    default:
-      return "unknown";
-  }
-}
-
-const char *powerModeName(vl53l9_power_mode_t mode)
-{
-  switch (mode) {
-    case VL53L9_POWER_REGULAR:
-      return "regular";
-    case VL53L9_POWER_LOW:
-      return "low";
-    case VL53L9_POWER_ULTRA_LOW:
-      return "ultra-low";
-    default:
-      return "unknown";
-  }
-}
-
-const char *contextName(vl53l9_context_t context)
-{
-  switch (context) {
-    case VL53L9_CONTEXT_SHORT:
-      return "short";
-    case VL53L9_CONTEXT_LONG:
-      return "long";
-    default:
-      return "unknown";
-  }
-}
-
-uint16_t readLe16(const uint8_t *data)
-{
-  return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
-}
-
-uint32_t readLe32(const uint8_t *data)
-{
-  return static_cast<uint32_t>(data[0]) |
-         (static_cast<uint32_t>(data[1]) << 8) |
-         (static_cast<uint32_t>(data[2]) << 16) |
-         (static_cast<uint32_t>(data[3]) << 24);
-}
-
-void printPaddedDepth(uint16_t value)
-{
-  if (value < 10000) {
-    Serial.print(' ');
-  }
-  if (value < 1000) {
-    Serial.print(' ');
-  }
-  if (value < 100) {
-    Serial.print(' ');
-  }
-  if (value < 10) {
-    Serial.print(' ');
-  }
-  Serial.print(value);
-}
-
-uint16_t depthAtOutputPixel(const uint8_t *buffer, uint8_t x, uint8_t y)
-{
-  const uint16_t rawIndex =
-      static_cast<uint16_t>(y + kRangingOutputYOffset) * kRangingRawWidth + x;
-  return readLe16(&buffer[rawIndex * 2U]) & 0x7fffU;
-}
-
-void printDepthGrid(const uint8_t *buffer)
-{
-  const uint16_t outputPixels =
-      static_cast<uint16_t>(kRangingOutputWidth) * static_cast<uint16_t>(kRangingOutputHeight);
-
-  if (outputPixels > 64U) {
-    Serial.println("Depth grid omitted; frame is larger than 64 output pixels.");
-    return;
-  }
-
-  Serial.println("Depth grid, raw depth units:");
-  for (uint8_t y = 0; y < kRangingOutputHeight; ++y) {
-    Serial.print("  ");
-    for (uint8_t x = 0; x < kRangingOutputWidth; ++x) {
-      printPaddedDepth(depthAtOutputPixel(buffer, x, y));
-      if (x + 1U < kRangingOutputWidth) {
-        Serial.print(' ');
-      }
-    }
-    Serial.println();
-  }
-}
-
-void printFrameSummary(const uint8_t *buffer, uint16_t bufferSize, uint16_t frameIndex)
-{
-  const uint32_t amplitudeOffset = static_cast<uint32_t>(kRangingRawResolution) * 2U;
-  const uint32_t ambientOffset = amplitudeOffset + (static_cast<uint32_t>(kRangingRawResolution) * 2U);
-  const uint8_t centerX = kRangingOutputWidth / 2U;
-  const uint8_t centerY = kRangingOutputHeight / 2U;
-  const uint16_t centerRawIndex =
-      static_cast<uint16_t>(centerY + kRangingOutputYOffset) * kRangingRawWidth + centerX;
-
-  uint16_t minDepth = 0xffffU;
-  uint16_t maxDepth = 0U;
-  uint32_t sumDepth = 0U;
-  uint16_t nonzeroCount = 0U;
-  uint16_t flaggedCount = 0U;
-
-  for (uint16_t i = 0; i < kRangingRawResolution; ++i) {
-    const uint16_t rawDepth = readLe16(&buffer[i * 2U]);
-    const uint16_t depth = rawDepth & 0x7fffU;
-    if ((rawDepth & 0x8000U) != 0U) {
-      ++flaggedCount;
-    }
-    if (depth == 0U) {
-      continue;
-    }
-    minDepth = min(minDepth, depth);
-    maxDepth = max(maxDepth, depth);
-    sumDepth += depth;
-    ++nonzeroCount;
-  }
-
-  const uint16_t centerDepth = readLe16(&buffer[centerRawIndex * 2U]) & 0x7fffU;
-  const uint16_t centerAmplitude = readLe16(&buffer[amplitudeOffset + (centerRawIndex * 2U)]);
-  const uint16_t centerAmbient = readLe16(&buffer[ambientOffset + (centerRawIndex * 2U)]);
-  const uint8_t *statusLine = &buffer[bufferSize - VL53L9_STATUS_SIZE];
-  const uint32_t frameCounter = readLe32(statusLine);
-  const uint16_t temperature = readLe16(statusLine + 4U);
-
-  Serial.print("Frame ");
-  Serial.print(frameIndex);
-  Serial.print(": sensor counter ");
-  Serial.print(frameCounter);
-  Serial.print(", raw bytes ");
-  Serial.print(bufferSize);
-  Serial.print(", nonzero depth pixels ");
-  Serial.print(nonzeroCount);
-  Serial.print('/');
-  Serial.print(kRangingRawResolution);
-  Serial.print(", flagged ");
-  Serial.println(flaggedCount);
-
-  Serial.print("Depth summary: min ");
-  Serial.print(nonzeroCount == 0U ? 0U : minDepth);
-  Serial.print(", avg ");
-  Serial.print(nonzeroCount == 0U ? 0U : (sumDepth / nonzeroCount));
-  Serial.print(", max ");
-  Serial.print(maxDepth);
-  Serial.print(", center ");
-  Serial.print(centerDepth);
-  Serial.print(", center amp ");
-  Serial.print(centerAmplitude);
-  Serial.print(", center ambient ");
-  Serial.print(centerAmbient);
-  Serial.print(", status temp raw ");
-  Serial.println(temperature);
-
-  printDepthGrid(buffer);
+  VL53L9CX::printPlatformError(Serial, gSensor.lastPlatformError());
 }
 #endif
 
@@ -736,21 +517,21 @@ bool configureRanging(VL53L9CX *sensor, uint16_t *rawBufferSize)
   }
 
   Serial.print("Ranging config: sync ");
-  Serial.print(syncModeName(kRangingSyncMode));
+  Serial.print(VL53L9CX::syncModeName(kRangingSyncMode));
   Serial.print(", power ");
-  Serial.print(powerModeName(kRangingPowerMode));
+  Serial.print(VL53L9CX::powerModeName(kRangingPowerMode));
   Serial.print(", context ");
-  Serial.print(contextName(kRangingContext));
+  Serial.print(VL53L9CX::contextName(kRangingContext));
   Serial.print(", binning ");
   Serial.print(kRangingBinning);
   Serial.print(", output ");
-  Serial.print(kRangingOutputWidth);
+  Serial.print(VL53L9CX::outputWidthForBinning(kRangingBinning));
   Serial.print('x');
-  Serial.print(kRangingOutputHeight);
+  Serial.print(VL53L9CX::outputHeightForBinning(kRangingBinning));
   Serial.print(", raw ");
-  Serial.print(kRangingRawWidth);
+  Serial.print(VL53L9CX::rawWidthForBinning(kRangingBinning));
   Serial.print('x');
-  Serial.print(kRangingRawResolution / kRangingRawWidth);
+  Serial.print(VL53L9CX::rawHeightForBinning(kRangingBinning));
   Serial.print(", frame period ");
   Serial.print(kRangingFramePeriodUs);
   Serial.print(" us, exposure ");
@@ -877,7 +658,7 @@ bool runStRangingSample(VL53L9CX *sensor)
       break;
     }
 
-    printFrameSummary(gFrameBuffer, rawBufferSize, frameIndex);
+    VL53L9CX::printRawFrameSummary(Serial, gFrameBuffer, rawBufferSize, frameIndex, kRangingBinning);
   }
 
   status = sensor->stop();
@@ -906,7 +687,7 @@ bool runStDriverInit()
   Serial.print("vl53l9_get_device_id: ");
   Serial.print(idStatus);
   Serial.print(" (");
-  Serial.print(vl53l9ErrorName(idStatus));
+  Serial.print(VL53L9CX::errorName(idStatus));
   Serial.print(')');
   Serial.print(", device ID ");
   printHex32(deviceId);

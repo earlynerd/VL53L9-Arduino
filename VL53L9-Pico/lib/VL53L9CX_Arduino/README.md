@@ -4,8 +4,8 @@ Arduino-Pico helper wrapper for the local VL53L9CX bring-up work.
 
 This library wraps the staged ST `vl53l9` driver and the local
 `vl53l9_arduino` platform callbacks with a C++ class that owns the ST device
-handle, ranging configuration calls, stream lifecycle, and raw frame waiting and
-reading.
+handle, ranging configuration calls, stream lifecycle, raw frame waiting and
+reading, and lightweight raw-frame parsing/summary helpers.
 
 It is not a standalone distributable Arduino library yet. It still requires:
 
@@ -50,6 +50,17 @@ status = sensor.readFrameAfterWait(frame, raw_size, 2000, &wait);
 sensor.stop();
 ```
 
+Raw-frame helpers are also available:
+
+```cpp
+VL53L9CXRawFrameSummary summary;
+if (VL53L9CX::summarizeRawFrame(frame, raw_size, cfg.binning, &summary)) {
+  Serial.println(summary.center_depth);
+}
+
+VL53L9CX::printRawFrameSummary(Serial, frame, raw_size, 1, cfg.binning);
+```
+
 ## Frame Handling
 
 The ST driver exposes frame-ready as a register bit and clears/release the frame
@@ -66,6 +77,6 @@ Supported wait modes:
 - `VL53L9CX_FRAME_WAIT_GPIO_ACTIVE_HIGH`: same, but active-high.
 
 The current X-NUCLEO-53L9A1 + Metro RP2350 smoke test still defaults to register
-polling. That is the known-good path from hardware validation. GPIO modes are
-available so the interrupt behavior can be characterized without changing the
-streaming code again.
+polling. GPIO active-high has also been observed working on that hardware. GPIO
+modes remain hints; every frame read is still gated by the ST frame-ready
+register.
