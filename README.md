@@ -357,7 +357,11 @@ The opt-in `rp2350_st_driver` environment runs additional serial-log stages:
 Starting ST vl53l9_init()
 vl53l9_init: 0 (OK)
 vl53l9_get_device_id: 0 (OK), device ID ...
+vl53l9_get_hw_config after init: 0 (OK)
+VL53L9 HW config: output i3c, signaling interrupt-pad, interrupt pad ...
 Ranging config: sync autonomous, power regular, context short, binning 12, ...
+vl53l9_get_hw_config after ranging config: 0 (OK)
+VL53L9 HW config: output i3c, signaling interrupt-pad, interrupt pad ...
 vl53l9_start: 0 (OK)
 Frame 1 ready after ..., polls=..., gpio_active_seen=..., latched=..., irq_count=...
 vl53l9_get_frame: 0 (OK)
@@ -369,9 +373,19 @@ vl53l9_stop: 0 (OK)
 ```
 
 This path is hardware-validated on the direct X-NUCLEO-53L9A1 + Metro RP2350
-setup with interrupt locking disabled and I3C at or below 2 MHz. The printed
-depth grid is parsed directly from ST's raw I3C frame layout and is meant to
-validate payload shape, not to replace ST's full post-processing pipeline.
+setup with interrupt locking disabled and I3C from 2.0 MHz to 3.2 MHz. The
+printed depth grid is parsed directly from ST's raw I3C frame layout and is
+meant to validate payload shape, not to replace ST's full post-processing
+pipeline.
+
+On failures from ST calls, the sketch prints the last recorded platform
+transport detail. If an I3C in-band interrupt interrupted a private transfer,
+the log includes the final drained IBI payload, for example:
+
+```text
+VL53L9 platform error detail: op=read, addr=52, reg=0x1900, requested=128, actual=0, chunk_offset=256, ibi_retries=3, i3c_status=1 (ERR_IBI_ARBITRATION(1))
+VL53L9 platform IBI payload: ...
+```
 
 ## Raw Frame Format And Post-Processing
 

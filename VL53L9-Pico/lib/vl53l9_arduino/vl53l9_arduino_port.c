@@ -31,6 +31,8 @@
 #endif
 
 static vl53l9_arduino_platform_error_t g_last_error;
+static uint8_t g_last_ibi_payload[VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE];
+static uint32_t g_last_ibi_payload_length;
 
 static int i3c_status_to_vl53l9_error(i3c_hl_status_t status)
 {
@@ -59,14 +61,24 @@ static void record_i3c_error(const char *operation,
     g_last_error.actual_size = actual_size;
     g_last_error.chunk_offset = chunk_offset;
     g_last_error.ibi_retries = ibi_retries;
+    g_last_error.ibi_payload_length = g_last_ibi_payload_length;
+    memcpy(g_last_error.ibi_payload, g_last_ibi_payload, sizeof(g_last_error.ibi_payload));
     g_last_error.i3c_status = (int)status;
 }
 
 static i3c_hl_status_t drain_pending_ibi(void)
 {
-    uint8_t payload[VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE];
-    uint32_t length = sizeof(payload);
-    i3c_hl_status_t status = i3c_hl_poll(payload, &length);
+    uint32_t length = sizeof(g_last_ibi_payload);
+    i3c_hl_status_t status;
+
+    memset(g_last_ibi_payload, 0, sizeof(g_last_ibi_payload));
+    g_last_ibi_payload_length = 0U;
+
+    status = i3c_hl_poll(g_last_ibi_payload, &length);
+    if (status == i3c_hl_status_ok)
+    {
+        g_last_ibi_payload_length = length;
+    }
 
     return (status == i3c_hl_status_no_ibi) ? i3c_hl_status_ok : status;
 }
@@ -152,6 +164,8 @@ static i3c_hl_status_t privwriteread_with_ibi_retry(uint8_t i3c_address,
 void vl53l9_arduino_clear_last_error(void)
 {
     memset(&g_last_error, 0, sizeof(g_last_error));
+    memset(g_last_ibi_payload, 0, sizeof(g_last_ibi_payload));
+    g_last_ibi_payload_length = 0U;
 }
 
 const vl53l9_arduino_platform_error_t *vl53l9_arduino_get_last_error(void)
@@ -238,7 +252,7 @@ int vl53l9_read(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_t
                              device->i3c_address,
                              (uint16_t)addr32,
                              this_read,
-                             read_size,
+                             0U,
                              offset,
                              ibi_retries,
                              status);
@@ -357,7 +371,7 @@ int vl53l9_write(void *const p_dev, uint16_t address, uint8_t *p_values, uint32_
                              device->i3c_address,
                              (uint16_t)addr32,
                              write_size,
-                             write_size,
+                             0U,
                              offset,
                              ibi_retries,
                              status);

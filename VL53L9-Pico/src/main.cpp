@@ -220,6 +220,17 @@ bool printVl53Status(const char *label, int status)
   return status == VL53L9_ERROR_NONE;
 }
 
+bool printHwConfigReadback(VL53L9CX *sensor, const char *label)
+{
+  vl53l9_hw_config_t config = {};
+  const int status = sensor->getHwConfig(&config);
+  if (!printVl53Status(label, status)) {
+    return false;
+  }
+  VL53L9CX::printHwConfig(Serial, config);
+  return true;
+}
+
 #endif
 
 bool startHostClock()
@@ -581,7 +592,7 @@ bool configureRanging(VL53L9CX *sensor, uint16_t *rawBufferSize)
     return false;
   }
 
-  return true;
+  return printHwConfigReadback(sensor, "vl53l9_get_hw_config after ranging config");
 }
 
 bool waitForRangingFrame(VL53L9CX *sensor, uint16_t frameIndex)
@@ -718,8 +729,11 @@ bool runStDriverInit()
   Serial.print(", device ID ");
   printHex32(deviceId);
   Serial.println();
+  if (idStatus != VL53L9_ERROR_NONE) {
+    return false;
+  }
 
-  return idStatus == VL53L9_ERROR_NONE;
+  return printHwConfigReadback(&gSensor, "vl53l9_get_hw_config after init");
 }
 #endif
 

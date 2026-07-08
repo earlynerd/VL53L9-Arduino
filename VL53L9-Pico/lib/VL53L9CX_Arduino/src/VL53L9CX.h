@@ -69,6 +69,8 @@ public:
 
     int init();
     int getDeviceId(uint32_t *device_id);
+    int getHwConfig(vl53l9_hw_config_t *config);
+    int setHwConfig(const vl53l9_hw_config_t &config);
 
     int getRawBufferSize(uint8_t binning, uint16_t *size) const;
     int configureRanging(const VL53L9CXRangingConfig &config);
@@ -104,6 +106,10 @@ public:
     static const char *powerModeName(vl53l9_power_mode_t mode);
     static const char *contextName(vl53l9_context_t context);
     static const char *frameWaitModeName(VL53L9CXFrameWaitMode mode);
+    static const char *outputInterfaceName(bool output_interface);
+    static const char *signalingModeName(bool signaling_mode);
+    static const char *interruptPadModeName(bool interrupt_pad_mode);
+    static void printHwConfig(Print &out, const vl53l9_hw_config_t &config);
     static void printPlatformError(Print &out, const vl53l9_arduino_platform_error_t *error);
 
     static uint16_t readLe16(const uint8_t *data);

@@ -166,6 +166,18 @@ int VL53L9CX::getDeviceId(uint32_t *device_id)
     return vl53l9_get_device_id(&device_, device_id);
 }
 
+int VL53L9CX::getHwConfig(vl53l9_hw_config_t *config)
+{
+    vl53l9_arduino_clear_last_error();
+    return vl53l9_get_hw_config(&device_, config);
+}
+
+int VL53L9CX::setHwConfig(const vl53l9_hw_config_t &config)
+{
+    vl53l9_arduino_clear_last_error();
+    return vl53l9_set_hw_config(&device_, config);
+}
+
 int VL53L9CX::getRawBufferSize(uint8_t binning, uint16_t *size) const
 {
     return vl53l9_get_raw_buffer_size(binning, size);
@@ -485,6 +497,43 @@ const char *VL53L9CX::frameWaitModeName(VL53L9CXFrameWaitMode mode)
     }
 }
 
+const char *VL53L9CX::outputInterfaceName(bool output_interface)
+{
+    return output_interface ? "i3c" : "csi2";
+}
+
+const char *VL53L9CX::signalingModeName(bool signaling_mode)
+{
+    return signaling_mode ? "interrupt-pad" : "in-band-i3c";
+}
+
+const char *VL53L9CX::interruptPadModeName(bool interrupt_pad_mode)
+{
+    return interrupt_pad_mode ? "open-drain" : "cmos";
+}
+
+void VL53L9CX::printHwConfig(Print &out, const vl53l9_hw_config_t &config)
+{
+    out.print("VL53L9 HW config: output ");
+    out.print(outputInterfaceName(config.output_interface));
+    out.print(", signaling ");
+    out.print(signalingModeName(config.signaling_mode));
+    out.print(", interrupt pad ");
+    out.print(interruptPadModeName(config.interrupt_pad_mode));
+    out.print(", CSI data rate ");
+    out.print(config.csi_data_rate);
+    out.print(", CSI vc ");
+    out.print(config.csi_virtual_channel);
+    out.print(", CSI status datatype ");
+    out.print(config.csi_status_line_datatype);
+    out.print(", CSI frame datatype ");
+    out.print(config.csi_frame_datatype);
+    out.print(", CSI frame ");
+    out.print(config.csi_frame_width);
+    out.print('x');
+    out.println(config.csi_frame_height);
+}
+
 void VL53L9CX::printPlatformError(Print &out, const vl53l9_arduino_platform_error_t *error)
 {
     if ((error == nullptr) || (error->valid == 0U))
@@ -512,6 +561,17 @@ void VL53L9CX::printPlatformError(Print &out, const vl53l9_arduino_platform_erro
     out.print(" (");
     out.print(vl53l9_arduino_i3c_status_name(error->i3c_status));
     out.println(')');
+    if (error->ibi_payload_length > 0U)
+    {
+        out.print("VL53L9 platform IBI payload:");
+        for (uint32_t i = 0U; (i < error->ibi_payload_length) && (i < VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE); ++i)
+        {
+            out.print(' ');
+            out.print("0x");
+            printHex8(out, error->ibi_payload[i]);
+        }
+        out.println();
+    }
 }
 
 uint16_t VL53L9CX::readLe16(const uint8_t *data)

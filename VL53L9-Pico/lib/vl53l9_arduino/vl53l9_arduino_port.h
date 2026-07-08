@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "vl53l9.h"
 
+#ifndef VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE
+#define VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE 16U
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,6 +30,8 @@ typedef struct
     uint32_t actual_size;
     uint32_t chunk_offset;
     uint32_t ibi_retries;
+    uint32_t ibi_payload_length;
+    uint8_t ibi_payload[VL53L9_ARDUINO_I3C_IBI_PAYLOAD_SIZE];
     int i3c_status;
 } vl53l9_arduino_platform_error_t;
 

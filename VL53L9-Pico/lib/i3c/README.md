@@ -106,11 +106,11 @@ HOST SCL    -> GPIO21
 ```
 
 The validation sketch starts the 12 MHz host clock, holds/releases XSHUT,
-initializes the PIO I3C transport at 1 MHz by default, runs RSTDAA and ENTDAA
+initializes the PIO I3C transport at 2 MHz by default, runs RSTDAA and ENTDAA
 with dynamic address `0x52`, checks that the address ACKs, then attempts private
 SDR reads of the model, ROM revision, patch revision, and FSM registers.
 
 The optional `rp2350_st_driver` environment continues into ST's init path. On
 hardware it has completed `vl53l9_init()`, firmware patch boot, ranging
 configuration, raw frame reads, and `vl53l9_stop()` when interrupt locking is
-disabled and the I3C clock is at or below 2 MHz.
+disabled and the I3C clock is between 2.0 MHz and 3.2 MHz.

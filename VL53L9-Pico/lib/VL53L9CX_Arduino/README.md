@@ -94,6 +94,11 @@ On the current hardware, 2.0 MHz to 3.2 MHz I3C has been observed working for
 init and raw-frame reads. 1 MHz can initialize but has failed during frame
 reads, while 4 MHz and above has failed during dynamic-address assignment.
 
+The wrapper exposes `getHwConfig()` and `printHwConfig()` so sketches can
+confirm whether ST configured I3C output, interrupt-pad signaling, and the pad
+electrical mode. Platform error printing also includes the final drained IBI
+payload when a private transfer loses arbitration to an in-band interrupt.
+
 When `attachFrameInterrupt()` is used with a GPIO wait mode, the wrapper attaches
 a small edge ISR and latches that an interrupt happened. `waitForFrame()` reports
 both the sampled GPIO level and the latched interrupt state through
