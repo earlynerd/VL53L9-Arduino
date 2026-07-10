@@ -696,12 +696,7 @@ bool VL53L9CX::printRawDepthGrid(Print &out, const uint8_t *buffer, uint8_t binn
     {
         return false;
     }
-    if (output_pixels > max_output_pixels)
-    {
-        out.println("Depth grid omitted; frame is larger than display limit.");
-        return true;
-    }
-
+   
     out.println("Depth grid, raw depth units:");
     for (uint8_t y = 0U; y < output_height; ++y)
     {

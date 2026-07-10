@@ -816,8 +816,10 @@ void runHardwareBringup()
 
 void setup()
 {
+  pinMode(23, OUTPUT);
+  digitalWrite(23, HIGH);
   Serial.begin(115200);
-  delay(1000);
+  while(!Serial);
 
   Serial.println();
   Serial.println("VL53L9CX RP2350 I3C hardware bring-up");
